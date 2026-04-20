@@ -224,14 +224,29 @@ function getGitStatus() {
       status: "unavailable",
       changedFiles: [],
       branches: [],
+      aheadCount: 0,
+      behindCount: 0,
+      hasRemote: false,
       error: "This workspace is not a git repository yet.",
     };
   }
 
   try {
     const branch = runGit(["branch", "--show-current"]) || "detached-head";
-    const latestCommit = runGit(["rev-parse", "--short", "HEAD"]);
-    const commitMessage = runGit(["log", "-1", "--pretty=%s"]);
+    const latestCommit = (() => {
+      try {
+        return runGit(["rev-parse", "--short", "HEAD"]);
+      } catch {
+        return "none";
+      }
+    })();
+    const commitMessage = (() => {
+      try {
+        return runGit(["log", "-1", "--pretty=%s"]);
+      } catch {
+        return "No commits yet. Save draft changes and publish your first version.";
+      }
+    })();
     const changedFiles = runGit(["status", "--porcelain"])
       .split("\n")
       .map((line) => line.trim())
@@ -241,6 +256,27 @@ function getGitStatus() {
       .map((line) => line.trim())
       .filter(Boolean);
     const repoRoot = runGit(["rev-parse", "--show-toplevel"]);
+    const hasRemote = (() => {
+      try {
+        return Boolean(runGit(["remote"]));
+      } catch {
+        return false;
+      }
+    })();
+    const upstreamExists = (() => {
+      try {
+        runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    const [behindCount, aheadCount] =
+      hasRemote && upstreamExists
+        ? runGit(["rev-list", "--left-right", "--count", "HEAD...@{u}"])
+            .split(/\s+/)
+            .map((value) => Number(value) || 0)
+        : [0, 0];
 
     return {
       available: true,
@@ -251,6 +287,9 @@ function getGitStatus() {
       status: changedFiles.length ? "dirty" : "clean",
       changedFiles,
       branches,
+      aheadCount,
+      behindCount,
+      hasRemote,
     };
   } catch (error) {
     return {
@@ -261,9 +300,23 @@ function getGitStatus() {
       status: "unavailable",
       changedFiles: [],
       branches: [],
+      aheadCount: 0,
+      behindCount: 0,
+      hasRemote: false,
       error: error instanceof Error ? error.message : "Unknown git error",
     };
   }
+}
+
+function stageWorkspaceFiles() {
+  const candidates = ["data", "package.json", "package-lock.json"];
+  const existing = candidates.filter((candidate) => fs.existsSync(path.join(PROJECT_ROOT, candidate)));
+
+  if (!existing.length) {
+    throw new Error("No tracked wizard files found to stage.");
+  }
+
+  runGit(["add", ...existing]);
 }
 
 function getDependencies() {
@@ -581,6 +634,75 @@ async function startServer() {
     } catch (error) {
       res.status(500).json({
         error: error instanceof Error ? error.message : "Unable to pull from remote",
+      });
+    }
+  });
+
+  app.post("/api/git/commit", (req, res) => {
+    try {
+      const message = String(req.body?.message || "").trim() || "Update wizard";
+      stageWorkspaceFiles();
+      const changedAfterStage = runGit(["status", "--porcelain"])
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      if (!changedAfterStage.length) {
+        res.json({
+          committed: false,
+          status: getGitStatus(),
+          message: "No changes to commit.",
+        });
+        return;
+      }
+
+      runGit(["commit", "-m", message]);
+      res.json({
+        committed: true,
+        status: getGitStatus(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to commit changes",
+      });
+    }
+  });
+
+  app.post("/api/git/push", (_req, res) => {
+    try {
+      const branch = runGit(["branch", "--show-current"]) || "main";
+      const hasRemote = (() => {
+        try {
+          return Boolean(runGit(["remote"]));
+        } catch {
+          return false;
+        }
+      })();
+
+      if (!hasRemote) {
+        res.status(400).json({ error: "No remote is configured for this repository." });
+        return;
+      }
+
+      const upstreamExists = (() => {
+        try {
+          runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+
+      if (upstreamExists) {
+        runGit(["push"]);
+      } else {
+        runGit(["push", "-u", "origin", branch]);
+      }
+
+      res.json(getGitStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to push changes",
       });
     }
   });

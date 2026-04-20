@@ -58,6 +58,9 @@ export interface GitStatus {
   status: 'clean' | 'dirty' | 'unavailable';
   changedFiles: string[];
   branches: string[];
+  aheadCount?: number;
+  behindCount?: number;
+  hasRemote?: boolean;
   error?: string;
 }
 
