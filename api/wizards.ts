@@ -1,26 +1,31 @@
-import { ensureStore } from "../lib/wizard-backend";
-
-export default function handler(_req: any, res: any) {
-  try {
-    const store = ensureStore();
-    const current =
-      store.wizards.find((wizard) => wizard.id === store.currentWizardId) || store.wizards[0];
-
-    res.status(200).json({
-      currentWizard: current,
-      templates: store.wizards.map((wizard) => ({
-        id: wizard.id,
-        name: wizard.name,
-        projectKey: wizard.projectKey,
-        description: wizard.description,
-        version: wizard.version,
-        updatedAt: wizard.updatedAt,
-        stepsCount: wizard.steps.length,
-      })),
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Unable to load wizards",
-    });
-  }
+export default function handler(req: any, res: any) {
+  res.status(200).json({
+    currentWizard: {
+      id: 'wizard-starter',
+      projectKey: 'default-project',
+      name: '',
+      description: '',
+      version: '1.0.0',
+      defaultTool: 'No default tool',
+      knowledgeFiles: [],
+      disableKnowledgeCitations: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      branding: {
+        primaryColor: '#4f46e5',
+        secondaryColor: '#f8fafc',
+        borderRadius: '16px',
+        fontFamily: 'Inter, sans-serif',
+      },
+      steps: [{
+        id: 'step-1',
+        title: 'Instructions',
+        description: '',
+        type: 'ai-prompt',
+        content: '',
+        placeholder: '',
+        required: true,
+      }],
+    },
+  });
 }
