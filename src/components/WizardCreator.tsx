@@ -126,7 +126,7 @@ export default function WizardCreator() {
   const saveWizard = async () => {
     setIsSaving(true);
     try {
-      const res = await fetch('/api/wizards/save', {
+      const res = await fetch('/api/wizards-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),
@@ -173,7 +173,7 @@ export default function WizardCreator() {
     setIsUploadingKnowledge(true);
     try {
       const payloadFiles = await Promise.all(files.map(readFileAsBase64));
-      const res = await fetch('/api/knowledge/upload', {
+      const res = await fetch('/api/knowledge-upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

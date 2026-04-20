@@ -37,7 +37,7 @@ export default function PromptEnhancer({ value, onChange, placeholder, historyKe
     setError(null);
 
     try {
-      const res = await fetch('/api/prompt/refine', {
+      const res = await fetch('/api/prompt-refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
