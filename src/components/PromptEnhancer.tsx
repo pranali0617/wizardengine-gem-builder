@@ -20,6 +20,17 @@ export default function PromptEnhancer({ value, onChange, placeholder, historyKe
     setError(null);
   }, [historyKey]);
 
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    // Update history when user types directly
+    if (history[historyIndex] !== newValue) {
+      const newHistory = [...history.slice(0, historyIndex + 1), newValue];
+      setHistory(newHistory);
+      setHistoryIndex(newHistory.length - 1);
+    }
+    onChange(newValue);
+  };
+
   const pushHistory = (nextValue: string) => {
     const nextHistory = history.slice(0, historyIndex + 1);
     nextHistory.push(nextValue);
@@ -88,7 +99,7 @@ export default function PromptEnhancer({ value, onChange, placeholder, historyKe
       <div className="overflow-hidden rounded-2xl border border-transparent bg-white">
         <textarea
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={handleTextareaChange}
           placeholder={placeholder}
           className="min-h-[260px] w-full resize-none border-none bg-white px-4 py-4 text-sm leading-8 text-gray-700 outline-none"
         />
