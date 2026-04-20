@@ -1,0 +1,49 @@
+{
+  "currentWizardId": "wizard-starter",
+  "wizards": [
+    {
+      "id": "wizard-starter",
+      "projectKey": "default-project",
+      "name": "My Custom Wizard",
+      "description": "A reusable multi-step workflow with prompt refinement and export support.",
+      "version": "1.0.0",
+      "defaultTool": "No default tool",
+      "knowledgeFiles": [],
+      "disableKnowledgeCitations": false,
+      "createdAt": "2026-04-17T11:32:22.403Z",
+      "updatedAt": "2026-04-17T11:32:22.403Z",
+      "branding": {
+        "primaryColor": "#2563eb",
+        "secondaryColor": "#f8fafc",
+        "borderRadius": "16px",
+        "fontFamily": "Inter, sans-serif"
+      },
+      "steps": [
+        {
+          "id": "step-1",
+          "title": "Welcome",
+          "description": "Introduce the wizard and set context for the user.",
+          "type": "text",
+          "content": "Welcome to your reusable wizard. Start by tailoring each step to your project."
+        },
+        {
+          "id": "step-2",
+          "title": "Goal",
+          "description": "Capture the user's goal or request.",
+          "type": "input",
+          "content": "",
+          "placeholder": "What do you want to achieve?",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "title": "Prompt Instructions",
+          "description": "Draft the instructions that power your workflow. Use AI refinement to polish them.",
+          "type": "ai-prompt",
+          "content": "",
+          "placeholder": "Describe the desired behavior, tone, constraints, and outputs."
+        }
+      ]
+    }
+  ]
+}
