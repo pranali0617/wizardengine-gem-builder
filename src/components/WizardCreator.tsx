@@ -187,6 +187,20 @@ function slugify(value: string) {
   );
 }
 
+type GitHubConnection = {
+  token: string;
+  repo: string;
+  baseBranch: string;
+  workingBranch: string;
+};
+
+const DEFAULT_GITHUB_CONNECTION: GitHubConnection = {
+  token: '',
+  repo: '',
+  baseBranch: 'main',
+  workingBranch: '',
+};
+
 function generatePrompt(formData: WizardFormData) {
   const toneLanguage: Record<string, string> = {
     stoic: 'stoic, composed, emotionally steady, and psychologically precise',
@@ -282,6 +296,7 @@ export default function WizardCreator() {
   const [isGitModalOpen, setIsGitModalOpen] = useState(false);
   const [branchName, setBranchName] = useState('feature/life-audit-update');
   const [commitMessage, setCommitMessage] = useState('Update wizard flow');
+  const [githubConnection, setGithubConnection] = useState<GitHubConnection>(DEFAULT_GITHUB_CONNECTION);
   const knowledgeInputRef = useRef<HTMLInputElement | null>(null);
 
   const instructionStep = useMemo<WizardStep>(() => config.steps[0] || EMPTY_WIZARD.steps[0], [config]);
@@ -352,7 +367,35 @@ export default function WizardCreator() {
   useEffect(() => {
     setBranchName(`feature/${slugify(config.name || formData.gemName || 'wizard')}`);
     setCommitMessage(`Update ${config.name || formData.gemName || 'wizard'} flow`);
+    setGithubConnection((current) => ({
+      ...current,
+      workingBranch: `feature/${slugify(config.name || formData.gemName || 'wizard')}`,
+    }));
   }, [config.name, formData.gemName]);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem('wizardengine-github-connection');
+    if (!stored) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as Partial<GitHubConnection>;
+      setGithubConnection((current) => ({
+        ...current,
+        ...parsed,
+      }));
+    } catch {
+      // Ignore invalid cached data.
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      'wizardengine-github-connection',
+      JSON.stringify(githubConnection),
+    );
+  }, [githubConnection]);
 
   const updateConfig = (updates: Partial<WizardConfig>) => {
     setConfig((current) => ({
@@ -452,6 +495,10 @@ export default function WizardCreator() {
     }
   };
 
+  const updateGitHubConnection = <K extends keyof GitHubConnection>(key: K, value: GitHubConnection[K]) => {
+    setGithubConnection((current) => ({ ...current, [key]: value }));
+  };
+
   const runGitAction = async (
     endpoint: string,
     payload?: Record<string, unknown>,
@@ -477,49 +524,95 @@ export default function WizardCreator() {
       setError('');
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Git action failed');
-      setNotice('');
+      const message = err instanceof Error ? err.message : 'Git action failed';
+      if (message.includes('GitHub-backed integration') || message.includes('shared Vercel deployment')) {
+        setNotice('Connect GitHub to publish, branch, sync, and merge changes from the shared app.');
+        setError('');
+      } else {
+        setError(message);
+        setNotice('');
+      }
       return false;
     } finally {
       setIsGitLoading(false);
     }
   };
 
-  const handleInitGit = async () => {
-    await runGitAction('/api/git-init', {}, 'Git initialized.');
-  };
-
   const handleCreateBranch = async () => {
-    if (!branchName.trim()) {
-      setError('Enter a branch name first.');
+    if (!githubConnection.token.trim() || !githubConnection.repo.trim() || !githubConnection.workingBranch.trim()) {
+      setError('Add your GitHub token, repository, and working branch first.');
       return;
     }
-    await runGitAction('/api/git-branch', { name: branchName.trim() }, `Switched to ${branchName.trim()}.`);
-  };
-
-  const handlePull = async () => {
     const saved = await saveWizard();
     if (!saved) {
       return;
     }
-    await runGitAction('/api/git-pull', {}, 'Pulled latest changes.');
-    await loadState();
+    await runGitAction(
+      '/api/github-publish',
+      {
+        token: githubConnection.token.trim(),
+        repo: githubConnection.repo.trim(),
+        baseBranch: githubConnection.baseBranch.trim() || 'main',
+        branch: githubConnection.workingBranch.trim(),
+        message: commitMessage.trim() || `Create ${githubConnection.workingBranch.trim()}`,
+        config,
+      },
+      `Published ${githubConnection.workingBranch.trim()} to GitHub.`,
+    );
+  };
+
+  const handlePull = async () => {
+    if (!githubConnection.token.trim() || !githubConnection.repo.trim() || !githubConnection.workingBranch.trim()) {
+      setError('Add your GitHub token, repository, and working branch first.');
+      return;
+    }
+    setIsGitLoading(true);
+    try {
+      const res = await fetch('/api/github-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: githubConnection.token.trim(),
+          repo: githubConnection.repo.trim(),
+          branch: githubConnection.workingBranch.trim(),
+          wizardName: config.name || formData.gemName,
+        }),
+      });
+      const data = await readJson(res);
+      if (!res.ok) {
+        throw new Error(data.error || 'Unable to sync latest changes');
+      }
+      setConfig(buildCleanWizard(data.wizard as WizardConfig));
+      setNotice(`Synced ${githubConnection.workingBranch.trim()} from GitHub.`);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to sync latest changes');
+      setNotice('');
+    } finally {
+      setIsGitLoading(false);
+    }
   };
 
   const handleMergeToMain = async () => {
-    if (!gitStatus?.branch || gitStatus.branch === 'main') {
-      setError('You are already on main.');
+    if (!githubConnection.token.trim() || !githubConnection.repo.trim() || !githubConnection.workingBranch.trim()) {
+      setError('Add your GitHub token, repository, and working branch first.');
       return;
     }
-    const checkedOut = await runGitAction('/api/git-checkout', { name: 'main' }, 'Checked out main.');
-    if (!checkedOut) {
+    if ((githubConnection.baseBranch.trim() || 'main') === githubConnection.workingBranch.trim()) {
+      setError('Working branch must be different from the base branch.');
       return;
     }
-    const merged = await runGitAction('/api/git-merge', { from: gitStatus.branch }, `Merged ${gitStatus.branch} into main.`);
-    if (!merged) {
-      return;
-    }
-    await runGitAction('/api/git-push', {}, 'Pushed merged changes to origin.');
+    await runGitAction(
+      '/api/github-merge',
+      {
+        token: githubConnection.token.trim(),
+        repo: githubConnection.repo.trim(),
+        baseBranch: githubConnection.baseBranch.trim() || 'main',
+        branch: githubConnection.workingBranch.trim(),
+        message: `Merge ${githubConnection.workingBranch.trim()} into ${githubConnection.baseBranch.trim() || 'main'}`,
+      },
+      `Merged ${githubConnection.workingBranch.trim()} into ${githubConnection.baseBranch.trim() || 'main'}.`,
+    );
   };
 
   const handlePublish = async () => {
@@ -527,11 +620,22 @@ export default function WizardCreator() {
     if (!saved) {
       return;
     }
-    const committed = await runGitAction('/api/git-commit', { message: commitMessage.trim() }, 'Changes committed.');
-    if (!committed) {
+    if (!githubConnection.token.trim() || !githubConnection.repo.trim() || !githubConnection.workingBranch.trim()) {
+      setError('Add your GitHub token, repository, and working branch first.');
       return;
     }
-    await runGitAction('/api/git-push', {}, 'Changes published to remote.');
+    await runGitAction(
+      '/api/github-publish',
+      {
+        token: githubConnection.token.trim(),
+        repo: githubConnection.repo.trim(),
+        baseBranch: githubConnection.baseBranch.trim() || 'main',
+        branch: githubConnection.workingBranch.trim(),
+        message: commitMessage.trim() || 'Update wizard',
+        config,
+      },
+      `Published changes to ${githubConnection.workingBranch.trim()} on GitHub.`,
+    );
   };
 
   const copyText = async (value: string, label: string) => {
@@ -693,11 +797,12 @@ export default function WizardCreator() {
             handleKnowledgeUpload,
             setBranchName,
             setCommitMessage,
-            handleInitGit,
             handleCreateBranch,
             handlePull,
             handlePublish,
             handleMergeToMain,
+            githubConnection,
+            updateGitHubConnection,
             isGitModalOpen,
             setIsGitModalOpen,
             startOver,
@@ -774,11 +879,12 @@ function renderFinalPage({
   handleKnowledgeUpload,
   setBranchName,
   setCommitMessage,
-  handleInitGit,
   handleCreateBranch,
   handlePull,
   handlePublish,
   handleMergeToMain,
+  githubConnection,
+  updateGitHubConnection,
   isGitModalOpen,
   setIsGitModalOpen,
   startOver,
@@ -802,11 +908,12 @@ function renderFinalPage({
   handleKnowledgeUpload: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   setBranchName: React.Dispatch<React.SetStateAction<string>>;
   setCommitMessage: React.Dispatch<React.SetStateAction<string>>;
-  handleInitGit: () => Promise<void>;
   handleCreateBranch: () => Promise<void>;
   handlePull: () => Promise<void>;
   handlePublish: () => Promise<void>;
   handleMergeToMain: () => Promise<void>;
+  githubConnection: GitHubConnection;
+  updateGitHubConnection: <K extends keyof GitHubConnection>(key: K, value: GitHubConnection[K]) => void;
   isGitModalOpen: boolean;
   setIsGitModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   startOver: () => void;
@@ -951,12 +1058,13 @@ function renderFinalPage({
                 commitMessage={commitMessage}
                 onBranchNameChange={setBranchName}
                 onCommitMessageChange={setCommitMessage}
-                onInit={handleInitGit}
                 onCreateBranch={handleCreateBranch}
                 onPull={handlePull}
                 onPublish={handlePublish}
                 onMergeToMain={handleMergeToMain}
                 onSaveDraft={saveWizard}
+                githubConnection={githubConnection}
+                onGitHubConnectionChange={updateGitHubConnection}
               />
             </div>
           </div>
@@ -1066,12 +1174,13 @@ function GitPanel({
   commitMessage,
   onBranchNameChange,
   onCommitMessageChange,
-  onInit,
   onCreateBranch,
   onPull,
   onPublish,
   onMergeToMain,
   onSaveDraft,
+  githubConnection,
+  onGitHubConnectionChange,
 }: {
   gitStatus: GitStatus | null;
   isLoading: boolean;
@@ -1079,20 +1188,25 @@ function GitPanel({
   commitMessage: string;
   onBranchNameChange: React.Dispatch<React.SetStateAction<string>>;
   onCommitMessageChange: React.Dispatch<React.SetStateAction<string>>;
-  onInit: () => Promise<void>;
   onCreateBranch: () => Promise<void>;
   onPull: () => Promise<void>;
   onPublish: () => Promise<void>;
   onMergeToMain: () => Promise<void>;
   onSaveDraft: () => Promise<boolean>;
+  githubConnection: GitHubConnection;
+  onGitHubConnectionChange: <K extends keyof GitHubConnection>(key: K, value: GitHubConnection[K]) => void;
 }) {
+  const usingGitHubPublish = !gitStatus?.available || gitStatus.branch === 'github-integration-required';
+
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">Version Control</h3>
+          <h3 className="text-sm font-semibold text-slate-900">{usingGitHubPublish ? 'GitHub Publish' : 'Version Control'}</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Save draft changes, create a branch, publish to remote, sync latest, and merge back to main.
+            {usingGitHubPublish
+              ? 'Connect a repository and publish this wizard through GitHub so shared Vercel users can sync and merge changes.'
+              : 'Save draft changes, create a branch, publish to remote, sync latest, and merge back to main.'}
           </p>
         </div>
         {gitStatus && (
@@ -1110,16 +1224,79 @@ function GitPanel({
         )}
       </div>
 
-      {!gitStatus?.available ? (
+      {usingGitHubPublish ? (
         <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-sm text-slate-600">Initialize git in this workspace to turn on collaboration actions.</p>
-          <button
-            onClick={onInit}
-            disabled={isLoading}
-            className="mt-3 rounded-full bg-[#377dff] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-          >
-            {isLoading ? 'Initializing...' : 'Initialize Git'}
-          </button>
+          <p className="text-sm font-medium text-slate-800">Connect GitHub to enable publishing</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Enter a GitHub personal access token and repository. The app will publish this wizard into a branch and can
+            sync or merge it later.
+          </p>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <InputField
+              label="GitHub Token"
+              value={githubConnection.token}
+              onChange={(value) => onGitHubConnectionChange('token', value)}
+            />
+            <InputField
+              label="Repository"
+              value={githubConnection.repo}
+              onChange={(value) => onGitHubConnectionChange('repo', value)}
+            />
+            <InputField
+              label="Base Branch"
+              value={githubConnection.baseBranch}
+              onChange={(value) => onGitHubConnectionChange('baseBranch', value)}
+            />
+            <InputField
+              label="Working Branch"
+              value={githubConnection.workingBranch}
+              onChange={(value) => onGitHubConnectionChange('workingBranch', value)}
+            />
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <InputField label="Commit Message" value={commitMessage} onChange={onCommitMessageChange} />
+            <InputField label="Draft Branch Name" value={branchName} onChange={onBranchNameChange} />
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={() => void onSaveDraft()}
+              disabled={isLoading}
+              className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+            >
+              Save Draft
+            </button>
+            <button
+              onClick={onCreateBranch}
+              disabled={isLoading}
+              className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
+            >
+              {isLoading ? 'Working...' : 'Create Branch'}
+            </button>
+            <button
+              onClick={onPull}
+              disabled={isLoading}
+              className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
+            >
+              {isLoading ? 'Working...' : 'Sync Latest'}
+            </button>
+            <button
+              onClick={onPublish}
+              disabled={isLoading}
+              className="rounded-full bg-[#377dff] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {isLoading ? 'Working...' : 'Publish Changes'}
+            </button>
+            <button
+              onClick={onMergeToMain}
+              disabled={isLoading}
+              className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
+            >
+              {isLoading ? 'Working...' : 'Merge to Main'}
+            </button>
+          </div>
         </div>
       ) : (
         <>
