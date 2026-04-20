@@ -46,7 +46,13 @@ export default function PromptEnhancer({ value, onChange, placeholder, historyKe
         }),
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error('API returned HTML instead of JSON. Redeploy on Vercel after adding the `api/` routes.');
+      }
       if (!res.ok) {
         throw new Error(data.error || 'Unable to refine prompt');
       }

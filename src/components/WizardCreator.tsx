@@ -67,11 +67,22 @@ export default function WizardCreator() {
 
   const instructionStep = useMemo<WizardStep>(() => config.steps[0] || EMPTY_WIZARD.steps[0], [config]);
 
+  const readJson = async (res: Response) => {
+    const text = await res.text();
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error(
+        'API returned HTML instead of JSON. Redeploy on Vercel after adding the `api/` routes and `vercel.json`.',
+      );
+    }
+  };
+
   const loadState = async () => {
     setIsLoading(true);
     try {
       const res = await fetch('/api/wizards');
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) {
         throw new Error(data.error || 'Unable to load wizard');
       }
@@ -120,7 +131,7 @@ export default function WizardCreator() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) {
         throw new Error(data.error || 'Unable to save wizard');
       }
@@ -170,7 +181,7 @@ export default function WizardCreator() {
           files: payloadFiles,
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) {
         throw new Error(data.error || 'Unable to upload files');
       }
