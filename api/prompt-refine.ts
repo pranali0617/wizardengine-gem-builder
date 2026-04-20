@@ -1,4 +1,4 @@
-import { refinePrompt } from "../../lib/wizard-backend";
+import { refinePrompt } from "../lib/wizard-backend";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {

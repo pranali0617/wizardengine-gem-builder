@@ -1,4 +1,4 @@
-import { ensureStore, normalizeWizard, writeStore } from "../../lib/wizard-backend";
+import { ensureStore, normalizeWizard, writeStore } from "../lib/wizard-backend";
 
 export default function handler(req: any, res: any) {
   if (req.method !== "POST") {

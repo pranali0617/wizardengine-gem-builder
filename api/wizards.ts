@@ -1,4 +1,4 @@
-import { ensureStore } from "../../lib/wizard-backend";
+import { ensureStore } from "../lib/wizard-backend";
 
 export default function handler(_req: any, res: any) {
   try {

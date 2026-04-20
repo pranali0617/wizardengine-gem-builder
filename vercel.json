@@ -15,8 +15,20 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1.ts"
+      "src": "/api/wizards/save",
+      "dest": "/api/wizards-save"
+    },
+    {
+      "src": "/api/prompt/refine",
+      "dest": "/api/prompt-refine"
+    },
+    {
+      "src": "/api/knowledge/upload",
+      "dest": "/api/knowledge-upload"
+    },
+    {
+      "src": "/api/wizards",
+      "dest": "/api/wizards"
     },
     {
       "handle": "filesystem"
