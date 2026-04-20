@@ -323,7 +323,7 @@ export default function WizardCreator() {
 
   const loadGitStatus = async () => {
     try {
-      const res = await fetch('/api/git/status');
+      const res = await fetch('/api/git-status');
       const data = (await readJson(res)) as GitStatus & { error?: string };
       if (!res.ok) {
         throw new Error(data.error || 'Unable to load git status');
@@ -476,7 +476,7 @@ export default function WizardCreator() {
   };
 
   const handleInitGit = async () => {
-    await runGitAction('/api/git/init', {}, 'Git initialized.');
+    await runGitAction('/api/git-init', {}, 'Git initialized.');
   };
 
   const handleCreateBranch = async () => {
@@ -484,7 +484,7 @@ export default function WizardCreator() {
       setError('Enter a branch name first.');
       return;
     }
-    await runGitAction('/api/git/branch', { name: branchName.trim() }, `Switched to ${branchName.trim()}.`);
+    await runGitAction('/api/git-branch', { name: branchName.trim() }, `Switched to ${branchName.trim()}.`);
   };
 
   const handlePull = async () => {
@@ -492,7 +492,7 @@ export default function WizardCreator() {
     if (!saved) {
       return;
     }
-    await runGitAction('/api/git/pull', {}, 'Pulled latest changes.');
+    await runGitAction('/api/git-pull', {}, 'Pulled latest changes.');
     await loadState();
   };
 
@@ -501,15 +501,15 @@ export default function WizardCreator() {
       setError('You are already on main.');
       return;
     }
-    const checkedOut = await runGitAction('/api/git/checkout', { name: 'main' }, 'Checked out main.');
+    const checkedOut = await runGitAction('/api/git-checkout', { name: 'main' }, 'Checked out main.');
     if (!checkedOut) {
       return;
     }
-    const merged = await runGitAction('/api/git/merge', { from: gitStatus.branch }, `Merged ${gitStatus.branch} into main.`);
+    const merged = await runGitAction('/api/git-merge', { from: gitStatus.branch }, `Merged ${gitStatus.branch} into main.`);
     if (!merged) {
       return;
     }
-    await runGitAction('/api/git/push', {}, 'Pushed merged changes to origin.');
+    await runGitAction('/api/git-push', {}, 'Pushed merged changes to origin.');
   };
 
   const handlePublish = async () => {
@@ -517,11 +517,11 @@ export default function WizardCreator() {
     if (!saved) {
       return;
     }
-    const committed = await runGitAction('/api/git/commit', { message: commitMessage.trim() }, 'Changes committed.');
+    const committed = await runGitAction('/api/git-commit', { message: commitMessage.trim() }, 'Changes committed.');
     if (!committed) {
       return;
     }
-    await runGitAction('/api/git/push', {}, 'Changes published to remote.');
+    await runGitAction('/api/git-push', {}, 'Changes published to remote.');
   };
 
   const copyText = async (value: string, label: string) => {

@@ -580,6 +580,10 @@ async function startServer() {
     res.json(getGitStatus());
   });
 
+  app.get("/api/git-status", (_req, res) => {
+    res.json(getGitStatus());
+  });
+
   app.post("/api/git/init", (_req, res) => {
     try {
       if (!isGitRepo()) {
@@ -593,7 +597,37 @@ async function startServer() {
     }
   });
 
+  app.post("/api/git-init", (_req, res) => {
+    try {
+      if (!isGitRepo()) {
+        runGit(["init"]);
+      }
+      res.json(getGitStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to initialize git",
+      });
+    }
+  });
+
   app.post("/api/git/branch", (req, res) => {
+    try {
+      const name = String(req.body?.name || "").trim();
+      if (!name) {
+        res.status(400).json({ error: "Branch name is required" });
+        return;
+      }
+
+      runGit(["checkout", "-b", name]);
+      res.json(getGitStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to create branch",
+      });
+    }
+  });
+
+  app.post("/api/git-branch", (req, res) => {
     try {
       const name = String(req.body?.name || "").trim();
       if (!name) {
@@ -627,6 +661,23 @@ async function startServer() {
     }
   });
 
+  app.post("/api/git-checkout", (req, res) => {
+    try {
+      const name = String(req.body?.name || "").trim();
+      if (!name) {
+        res.status(400).json({ error: "Branch name is required" });
+        return;
+      }
+
+      runGit(["checkout", name]);
+      res.json(getGitStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to checkout branch",
+      });
+    }
+  });
+
   app.post("/api/git/pull", (_req, res) => {
     try {
       runGit(["pull", "--ff-only"]);
@@ -638,7 +689,48 @@ async function startServer() {
     }
   });
 
+  app.post("/api/git-pull", (_req, res) => {
+    try {
+      runGit(["pull", "--ff-only"]);
+      res.json(getGitStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to pull from remote",
+      });
+    }
+  });
+
   app.post("/api/git/commit", (req, res) => {
+    try {
+      const message = String(req.body?.message || "").trim() || "Update wizard";
+      stageWorkspaceFiles();
+      const changedAfterStage = runGit(["status", "--porcelain"])
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      if (!changedAfterStage.length) {
+        res.json({
+          committed: false,
+          status: getGitStatus(),
+          message: "No changes to commit.",
+        });
+        return;
+      }
+
+      runGit(["commit", "-m", message]);
+      res.json({
+        committed: true,
+        status: getGitStatus(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to commit changes",
+      });
+    }
+  });
+
+  app.post("/api/git-commit", (req, res) => {
     try {
       const message = String(req.body?.message || "").trim() || "Update wizard";
       stageWorkspaceFiles();
@@ -707,7 +799,63 @@ async function startServer() {
     }
   });
 
+  app.post("/api/git-push", (_req, res) => {
+    try {
+      const branch = runGit(["branch", "--show-current"]) || "main";
+      const hasRemote = (() => {
+        try {
+          return Boolean(runGit(["remote"]));
+        } catch {
+          return false;
+        }
+      })();
+
+      if (!hasRemote) {
+        res.status(400).json({ error: "No remote is configured for this repository." });
+        return;
+      }
+
+      const upstreamExists = (() => {
+        try {
+          runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+
+      if (upstreamExists) {
+        runGit(["push"]);
+      } else {
+        runGit(["push", "-u", "origin", branch]);
+      }
+
+      res.json(getGitStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to push changes",
+      });
+    }
+  });
+
   app.post("/api/git/merge", (req, res) => {
+    try {
+      const from = String(req.body?.from || "").trim();
+      if (!from) {
+        res.status(400).json({ error: "Source branch is required" });
+        return;
+      }
+
+      runGit(["merge", "--no-edit", from]);
+      res.json(getGitStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to merge branch",
+      });
+    }
+  });
+
+  app.post("/api/git-merge", (req, res) => {
     try {
       const from = String(req.body?.from || "").trim();
       if (!from) {
