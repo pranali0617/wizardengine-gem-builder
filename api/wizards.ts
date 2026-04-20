@@ -1,5 +1,5 @@
 export default function handler(req: any, res: any) {
-  res.status(200).json({
+  res.json({
     currentWizard: {
       id: 'wizard-starter',
       projectKey: 'default-project',
@@ -17,15 +17,7 @@ export default function handler(req: any, res: any) {
         borderRadius: '16px',
         fontFamily: 'Inter, sans-serif',
       },
-      steps: [{
-        id: 'step-1',
-        title: 'Instructions',
-        description: '',
-        type: 'ai-prompt',
-        content: '',
-        placeholder: '',
-        required: true,
-      }],
+      steps: [{ id: 'step-1', title: 'Instructions', description: '', type: 'ai-prompt', content: '', placeholder: '', required: true }],
     },
   });
 }
