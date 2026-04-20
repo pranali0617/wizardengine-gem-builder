@@ -149,11 +149,11 @@ const EMPTY_WIZARD: WizardConfig = {
 };
 
 const DEFAULT_FORM_DATA: WizardFormData = {
-  gemName: 'Life Audit',
-  guideTone: 'empathetic',
-  painPoint: 'career_productivity',
-  auditRigor: 'balanced',
-  learningStyle: 'tables',
+  gemName: '',
+  guideTone: '',
+  painPoint: '',
+  auditRigor: '',
+  learningStyle: '',
 };
 
 function buildCleanWizard(config: WizardConfig): WizardConfig {
@@ -286,6 +286,16 @@ export default function WizardCreator() {
 
   const instructionStep = useMemo<WizardStep>(() => config.steps[0] || EMPTY_WIZARD.steps[0], [config]);
   const isFinalStep = currentStepIndex === PREP_STEPS.length - 1;
+  const canProceed =
+    currentStepIndex === 0
+      ? Boolean(formData.gemName.trim() && formData.guideTone)
+      : currentStepIndex === 1
+        ? Boolean(formData.painPoint)
+        : currentStepIndex === 2
+          ? Boolean(formData.auditRigor)
+          : currentStepIndex === 3
+            ? Boolean(formData.learningStyle)
+            : true;
 
   const readJson = async (res: Response) => {
     const text = await res.text();
@@ -652,7 +662,8 @@ export default function WizardCreator() {
                 )}
                 <button
                   onClick={goNext}
-                  className="inline-flex items-center gap-2 rounded-full bg-[#377dff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(55,125,255,0.3)] transition-transform hover:-translate-y-0.5"
+                  disabled={!canProceed}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#377dff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(55,125,255,0.3)] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
                 >
                   {currentStepIndex === PREP_STEPS.length - 2 ? 'Generate Prompt' : 'Next'}
                   <ChevronRight size={16} />
