@@ -46,7 +46,7 @@ export interface PromptRefinementResult {
   refinedPrompt: string;
   summary: string;
   suggestions: string[];
-  provider: 'gemini' | 'fallback';
+  provider: 'gemini' | 'groq';
 }
 
 export interface GitStatus {

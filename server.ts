@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import { execFileSync } from "child_process";
 import dotenv from "dotenv";
-import { GoogleGenAI } from "@google/genai";
+import { refinePrompt as sharedRefinePrompt } from "./lib/wizard-backend";
 
 dotenv.config();
 
@@ -16,7 +16,6 @@ const PROJECT_ROOT = process.cwd();
 const DATA_DIR = path.join(PROJECT_ROOT, "data");
 const STORE_PATH = path.join(DATA_DIR, "wizards.json");
 const KNOWLEDGE_DIR = path.join(DATA_DIR, "knowledge");
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
 type StepType = "text" | "choice" | "input" | "ai-prompt";
 
@@ -294,186 +293,6 @@ function getDependencies() {
   );
 }
 
-async function refinePrompt(prompt: string, currentPrompt = "") {
-  const trimmed = prompt.trim();
-  if (!trimmed) {
-    return {
-      refinedPrompt: "",
-      summary: "Add some prompt text first.",
-      suggestions: [],
-      provider: "fallback" as const,
-    };
-  }
-
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (geminiKey) {
-    try {
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: `
-Return valid JSON only with keys:
-- roleLine
-- purposeGoals
-- behaviorRules
-- toneBullets
-- summary
-- suggestions
-
-The user wants a Gemini-style Gem instruction, but with a stable fixed format.
-
-Write content for this exact structure:
-
-Act as ...
-
-Purpose and Goals:
-* ...
-* ...
-* ...
-
-Behaviors and Rules:
-1) Initial Inquiry:
-a) ...
-b) ...
-c) ...
-
-2) Step-by-Step Guidance:
-a) ...
-b) ...
-c) ...
-
-3) Supportive Feedback:
-a) ...
-b) ...
-
-Overall Tone:
-* ...
-* ...
-* ...
-
-Rules:
-- Keep the user's intent exactly, but improve it.
-- Keep each bullet practical and specific.
-- If the user asks for teaching, learning, coaching, planning, mentoring, or step-by-step help, make the structure reflect that.
-- Do not return markdown fences.
-- Do not change the top-level section names.
-- Do not add extra sections.
-
-Current prompt:
-${currentPrompt || "(empty)"}
-
-User's raw instructions:
-${trimmed}
-                `.trim(),
-              },
-            ],
-          },
-        ],
-        config: {
-          responseMimeType: "application/json",
-        },
-      });
-
-      const text = response.text?.trim();
-      if (text) {
-        const parsed = JSON.parse(text) as {
-          roleLine?: string;
-          purposeGoals?: string[];
-          behaviorRules?: {
-            initialInquiry?: string[];
-            stepByStepGuidance?: string[];
-            supportiveFeedback?: string[];
-          };
-          toneBullets?: string[];
-          summary?: string;
-          suggestions?: string[];
-        };
-
-        if (parsed.roleLine) {
-          const purposeGoals = Array.isArray(parsed.purposeGoals) ? parsed.purposeGoals : [];
-          const initialInquiry = Array.isArray(parsed.behaviorRules?.initialInquiry)
-            ? parsed.behaviorRules?.initialInquiry
-            : [];
-          const stepByStepGuidance = Array.isArray(parsed.behaviorRules?.stepByStepGuidance)
-            ? parsed.behaviorRules?.stepByStepGuidance
-            : [];
-          const supportiveFeedback = Array.isArray(parsed.behaviorRules?.supportiveFeedback)
-            ? parsed.behaviorRules?.supportiveFeedback
-            : [];
-          const toneBullets = Array.isArray(parsed.toneBullets) ? parsed.toneBullets : [];
-
-          const refinedPrompt = [
-            parsed.roleLine.trim(),
-            "",
-            "Purpose and Goals:",
-            ...purposeGoals.map((item) => `* ${item}`),
-            "",
-            "Behaviors and Rules:",
-            "1) Initial Inquiry:",
-            ...initialInquiry.map((item, index) => `${String.fromCharCode(97 + index)}) ${item}`),
-            "",
-            "2) Step-by-Step Guidance:",
-            ...stepByStepGuidance.map((item, index) => `${String.fromCharCode(97 + index)}) ${item}`),
-            "",
-            "3) Supportive Feedback:",
-            ...supportiveFeedback.map((item, index) => `${String.fromCharCode(97 + index)}) ${item}`),
-            "",
-            "Overall Tone:",
-            ...toneBullets.map((item) => `* ${item}`),
-          ]
-            .filter((line, index, lines) => !(line === "" && lines[index - 1] === ""))
-            .join("\n");
-
-          return {
-            refinedPrompt,
-            summary: parsed.summary?.trim() || "Refined with Gemini.",
-            suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.slice(0, 4) : [],
-            provider: "gemini" as const,
-          };
-        }
-      }
-    } catch (error) {
-      console.error("Gemini refinement failed:", error);
-    }
-  }
-
-  const refinedPrompt = [
-    `Act as ${trimmed.charAt(0).toLowerCase() === trimmed.charAt(0) ? "a specialized assistant" : "a specialized assistant"} aligned to the user's intent.`,
-    "",
-    "Purpose and Goals:",
-    `- ${trimmed.charAt(0).toUpperCase() + trimmed.slice(1)}`,
-    "- Provide clear, practical, and useful support.",
-    "- Keep the conversation structured and easy to follow.",
-    "",
-    "Behaviors and Rules:",
-    "1. Start by understanding the user's specific situation or goal.",
-    "2. Break the response into clear, manageable guidance.",
-    "3. Explain what to do and why it matters.",
-    "4. Ask focused follow-up questions only when needed.",
-    "5. Keep the tone supportive, clear, and practical.",
-    "",
-    "Overall Tone:",
-    "- Helpful, structured, and confident.",
-    "- Clear and easy to apply.",
-  ].join("\n");
-
-  return {
-    refinedPrompt,
-    summary: "Used the built-in fallback refiner because a Gemini API key was not available.",
-    suggestions: [
-      "Mention the exact role you want the Gem to play.",
-      "Say whether answers should be step-by-step, brief, or deeply structured.",
-      "Include tone, rules, and follow-up behavior you want enforced.",
-    ],
-    provider: "fallback" as const,
-  };
-}
-
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
@@ -501,6 +320,26 @@ async function startServer() {
   });
 
   app.post("/api/wizards/save", (req, res) => {
+    const incoming = normalizeWizard(req.body?.config || {});
+    const store = ensureStore();
+    const existingIndex = store.wizards.findIndex((wizard) => wizard.id === incoming.id);
+
+    if (existingIndex >= 0) {
+      store.wizards[existingIndex] = {
+        ...store.wizards[existingIndex],
+        ...incoming,
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      store.wizards.unshift(incoming);
+    }
+
+    store.currentWizardId = incoming.id;
+    writeStore(store);
+    res.json({ saved: true, wizard: incoming });
+  });
+
+  app.post("/api/wizards-save", (req, res) => {
     const incoming = normalizeWizard(req.body?.config || {});
     const store = ensureStore();
     const existingIndex = store.wizards.findIndex((wizard) => wizard.id === incoming.id);
@@ -606,11 +445,76 @@ async function startServer() {
     }
   });
 
+  app.post("/api/knowledge-upload", (req, res) => {
+    try {
+      const wizardId = String(req.body?.wizardId || "");
+      const files = Array.isArray(req.body?.files) ? req.body.files : [];
+      if (!wizardId) {
+        res.status(400).json({ error: "Wizard id is required" });
+        return;
+      }
+      if (!files.length) {
+        res.status(400).json({ error: "At least one file is required" });
+        return;
+      }
+
+      const store = ensureStore();
+      const wizardIndex = store.wizards.findIndex((wizard) => wizard.id === wizardId);
+      if (wizardIndex < 0) {
+        res.status(404).json({ error: "Wizard not found" });
+        return;
+      }
+
+      const uploadedNames = files.map((file: { name?: string; content?: string }) => {
+        if (!file?.name || !file?.content) {
+          throw new Error("Invalid file payload");
+        }
+        return writeKnowledgeFile(file.name, file.content);
+      });
+
+      const wizard = store.wizards[wizardIndex];
+      const mergedKnowledgeFiles = Array.from(new Set([...(wizard.knowledgeFiles || []), ...uploadedNames]));
+      const updatedWizard = {
+        ...wizard,
+        knowledgeFiles: mergedKnowledgeFiles,
+        updatedAt: new Date().toISOString(),
+      };
+
+      store.wizards[wizardIndex] = updatedWizard;
+      if (store.currentWizardId === updatedWizard.id) {
+        store.currentWizardId = updatedWizard.id;
+      }
+      writeStore(store);
+
+      res.json({
+        uploaded: uploadedNames,
+        wizard: updatedWizard,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to upload knowledge files",
+      });
+    }
+  });
+
   app.post("/api/prompt/refine", async (req, res) => {
     try {
       const prompt = String(req.body?.prompt || "");
       const currentPrompt = String(req.body?.currentPrompt || "");
-      const result = await refinePrompt(prompt, currentPrompt);
+      const result = await sharedRefinePrompt(prompt, currentPrompt);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Prompt refinement failed",
+      });
+    }
+  });
+
+  app.post("/api/prompt-refine", async (req, res) => {
+    try {
+      const prompt = String(req.body?.prompt || "");
+      const currentPrompt = String(req.body?.currentPrompt || "");
+      const result = await sharedRefinePrompt(prompt, currentPrompt);
       res.json(result);
     } catch (error) {
       res.status(500).json({
