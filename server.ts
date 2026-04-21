@@ -54,6 +54,13 @@ interface BrandingConfig {
   fontFamily: string;
 }
 
+interface WizardSetupSelections {
+  gemName: string;
+  guideTone: string;
+  auditRigor: string;
+  learningStyle: string;
+}
+
 interface WizardConfig {
   id: string;
   projectKey: string;
@@ -65,6 +72,7 @@ interface WizardConfig {
   defaultTool?: string;
   knowledgeFiles: string[];
   disableKnowledgeCitations: boolean;
+  setupSelections?: WizardSetupSelections;
   createdAt: string;
   updatedAt: string;
 }
@@ -86,6 +94,12 @@ const defaultWizard = (): WizardConfig => {
     defaultTool: "No default tool",
     knowledgeFiles: [],
     disableKnowledgeCitations: false,
+    setupSelections: {
+      gemName: "Life Audit",
+      guideTone: "",
+      auditRigor: "",
+      learningStyle: "",
+    },
     createdAt: now,
     updatedAt: now,
     branding: {
@@ -181,6 +195,14 @@ function normalizeWizard(input: Partial<WizardConfig>): WizardConfig {
     defaultTool: input.defaultTool?.trim() || fallback.defaultTool,
     knowledgeFiles: Array.isArray(input.knowledgeFiles) ? input.knowledgeFiles : [],
     disableKnowledgeCitations: Boolean(input.disableKnowledgeCitations),
+    setupSelections: {
+      ...fallback.setupSelections,
+      ...input.setupSelections,
+      gemName: input.setupSelections?.gemName?.trim() || input.name?.trim() || fallback.setupSelections?.gemName || fallback.name,
+      guideTone: input.setupSelections?.guideTone?.trim() || fallback.setupSelections?.guideTone || "",
+      auditRigor: input.setupSelections?.auditRigor?.trim() || fallback.setupSelections?.auditRigor || "",
+      learningStyle: input.setupSelections?.learningStyle?.trim() || fallback.setupSelections?.learningStyle || "",
+    },
     createdAt: input.createdAt || now,
     updatedAt: now,
     branding: {

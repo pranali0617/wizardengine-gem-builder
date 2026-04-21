@@ -17,6 +17,13 @@ export interface BrandingConfig {
   fontFamily: string;
 }
 
+export interface WizardSetupSelections {
+  gemName: string;
+  guideTone: string;
+  auditRigor: string;
+  learningStyle: string;
+}
+
 export interface WizardConfig {
   id: string;
   projectKey: string;
@@ -28,6 +35,7 @@ export interface WizardConfig {
   defaultTool?: string;
   knowledgeFiles: string[];
   disableKnowledgeCitations: boolean;
+  setupSelections?: WizardSetupSelections;
   createdAt: string;
   updatedAt: string;
 }

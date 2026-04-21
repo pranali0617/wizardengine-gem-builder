@@ -131,6 +131,12 @@ function buildCleanWizard(config: WizardConfig): WizardConfig {
   const firstStep = config.steps[0] || EMPTY_WIZARD.steps[0];
   return {
     ...config,
+    setupSelections: {
+      gemName: config.setupSelections?.gemName || config.name || DEFAULT_FORM_DATA.gemName,
+      guideTone: config.setupSelections?.guideTone || '',
+      auditRigor: config.setupSelections?.auditRigor || '',
+      learningStyle: config.setupSelections?.learningStyle || '',
+    },
     steps: [
       {
         ...firstStep,
@@ -292,7 +298,10 @@ export default function WizardCreator() {
       setConfig(loadedWizard);
       setFormData((current) => ({
         ...current,
-        gemName: loadedWizard.name || current.gemName || DEFAULT_FORM_DATA.gemName,
+        gemName: loadedWizard.setupSelections?.gemName || loadedWizard.name || current.gemName || DEFAULT_FORM_DATA.gemName,
+        guideTone: loadedWizard.setupSelections?.guideTone || '',
+        auditRigor: loadedWizard.setupSelections?.auditRigor || '',
+        learningStyle: loadedWizard.setupSelections?.learningStyle || '',
       }));
       setNotice('');
       setError('');
@@ -390,6 +399,12 @@ export default function WizardCreator() {
       ...current,
       name: formData.gemName,
       description: generateDescription(formData),
+      setupSelections: {
+        gemName: formData.gemName,
+        guideTone: formData.guideTone,
+        auditRigor: formData.auditRigor,
+        learningStyle: formData.learningStyle,
+      },
       steps: [
         {
           ...instructionStep,
@@ -409,8 +424,14 @@ export default function WizardCreator() {
     setError('');
     setConfig((current) => ({
       ...current,
-      name: '',
+      name: DEFAULT_FORM_DATA.gemName,
       description: '',
+      setupSelections: {
+        gemName: DEFAULT_FORM_DATA.gemName,
+        guideTone: '',
+        auditRigor: '',
+        learningStyle: '',
+      },
       steps: [
         {
           ...(current.steps[0] || EMPTY_WIZARD.steps[0]),
@@ -436,7 +457,17 @@ export default function WizardCreator() {
       const res = await fetch('/api/wizards-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify({
+          config: {
+            ...config,
+            setupSelections: {
+              gemName: formData.gemName,
+              guideTone: formData.guideTone,
+              auditRigor: formData.auditRigor,
+              learningStyle: formData.learningStyle,
+            },
+          },
+        }),
       });
       const data = await readJson(res);
       if (!res.ok) {
@@ -911,7 +942,10 @@ function renderFinalPage({
           <div className="relative">
             <input
               value={config.name}
-              onChange={(e) => updateConfig({ name: e.target.value })}
+              onChange={(e) => {
+                updateConfig({ name: e.target.value });
+                updateFormData('gemName', e.target.value);
+              }}
               placeholder="Give your Gem a name"
               className={`w-full rounded-xl border bg-white px-4 py-4 text-lg outline-none ${
                 config.name ? 'border-gray-200' : 'border-red-500'
