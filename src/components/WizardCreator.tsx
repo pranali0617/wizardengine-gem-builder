@@ -988,32 +988,14 @@ function renderFinalPage({
 
         <div>
           <FieldHeader title="Knowledge" />
-          <input ref={knowledgeInputRef} type="file" multiple className="hidden" onChange={handleKnowledgeUpload} />
-          <button
-            type="button"
-            onClick={() => knowledgeInputRef.current?.click()}
-            className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-100 px-4 py-4 text-left text-sm text-slate-400"
-          >
+          <div className="flex w-full cursor-not-allowed items-center justify-between rounded-xl border border-slate-200 bg-slate-100 px-4 py-4 text-left text-sm text-slate-400 opacity-80">
             <span>
-              {isUploadingKnowledge
-                ? 'Uploading files...'
-                : config.knowledgeFiles.length
-                  ? config.knowledgeFiles.join(', ')
-                  : 'Choose knowledge from the Gemini Gem'}
+              {config.knowledgeFiles.length ? config.knowledgeFiles.join(', ') : 'Choose knowledge from the Gemini Gem'}
             </span>
-            <span className="text-2xl text-slate-300">{isUploadingKnowledge ? '…' : '+'}</span>
-          </button>
+            <span className="text-2xl text-slate-300">+</span>
+          </div>
         </div>
 
-        <label className="flex items-center gap-3 text-sm text-gray-500">
-          <input
-            type="checkbox"
-            checked={config.disableKnowledgeCitations}
-            onChange={(e) => updateConfig({ disableKnowledgeCitations: e.target.checked })}
-            className="h-4 w-4"
-          />
-          <span>Disable Knowledge Citations</span>
-        </label>
       </div>
 
       <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-6">
