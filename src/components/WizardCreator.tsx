@@ -6,12 +6,11 @@ import { GitStatus, WizardConfig, WizardStep } from '../types';
 type WizardFormData = {
   gemName: string;
   guideTone: string;
-  painPoint: string;
   auditRigor: string;
   learningStyle: string;
 };
 
-const PREP_STEPS = ['Guide Tone', 'Pain Point', 'Audit Rigor', 'Learning Style', 'Review Inputs', 'Final Page'] as const;
+const PREP_STEPS = ['Guide Tone', 'Audit Rigor', 'Learning Style', 'Review Inputs', 'Final Page'] as const;
 
 const PREP_STEP_META: Record<number, { title: string; subtitle: string }> = {
   0: {
@@ -19,20 +18,16 @@ const PREP_STEP_META: Record<number, { title: string; subtitle: string }> = {
     subtitle: 'This injects the emotional adjectives Gemini-style into the role and behavior sections.',
   },
   1: {
-    title: 'Select your Pain Point',
-    subtitle: 'This tells the audit where to look for the hidden thread and where to apply the most pressure.',
-  },
-  2: {
     title: 'Select Audit Rigor',
     subtitle: 'This defines how aggressive the deep-dive rule should be when answers feel weak, vague, or curated.',
   },
-  3: {
+  2: {
     title: 'Preferred Learning Style',
     subtitle: 'This adjusts the final format so the synthesis feels more visual, narrative, or action-driven.',
   },
-  4: {
+  3: {
     title: 'Review Setup',
-    subtitle: 'Check the four prompt levers before we generate the final instructions into the last page.',
+    subtitle: 'Check the three prompt levers before we generate the final instructions into the last page.',
   },
 };
 
@@ -56,29 +51,6 @@ const TONE_OPTIONS = [
     value: 'clinical',
     label: 'Clinical',
     description: 'Keep the voice precise, measured, diagnostic, and highly analytical.',
-  },
-];
-
-const PAIN_POINT_OPTIONS = [
-  {
-    value: 'career_productivity',
-    label: 'Career & Productivity',
-    description: 'Make the thread analysis bias toward work, execution, discipline, and progress blocks.',
-  },
-  {
-    value: 'health_wellness',
-    label: 'Health & Wellness',
-    description: 'Focus the diagnosis on energy, recovery, habits, stress load, and physical wellbeing.',
-  },
-  {
-    value: 'personal_relationships',
-    label: 'Personal Relationships',
-    description: 'Look hardest at attachment, intimacy, communication, and emotional connection patterns.',
-  },
-  {
-    value: 'financial_freedom',
-    label: 'Financial Freedom',
-    description: 'Trace the thread back to money avoidance, scarcity beliefs, and financial self-trust.',
   },
 ];
 
@@ -121,10 +93,10 @@ const LEARNING_STYLE_OPTIONS = [
 const EMPTY_WIZARD: WizardConfig = {
   id: 'wizard-starter',
   projectKey: 'default-project',
-  name: '',
+  name: 'Life Audit',
   description: '',
   version: '1.0.0',
-  defaultTool: 'No default tool',
+  defaultTool: '',
   knowledgeFiles: [],
   disableKnowledgeCitations: false,
   createdAt: new Date().toISOString(),
@@ -149,9 +121,8 @@ const EMPTY_WIZARD: WizardConfig = {
 };
 
 const DEFAULT_FORM_DATA: WizardFormData = {
-  gemName: '',
+  gemName: 'Life Audit',
   guideTone: '',
-  painPoint: '',
   auditRigor: '',
   learningStyle: '',
 };
@@ -187,18 +158,18 @@ function slugify(value: string) {
   );
 }
 
-type GitHubConnection = {
-  token: string;
-  repo: string;
+type GitConnection = {
+  username: string;
+  password: string;
   baseBranch: string;
-  workingBranch: string;
+  selectedBranch: string;
 };
 
-const DEFAULT_GITHUB_CONNECTION: GitHubConnection = {
-  token: '',
-  repo: '',
+const DEFAULT_GIT_CONNECTION: GitConnection = {
+  username: '',
+  password: '',
   baseBranch: 'main',
-  workingBranch: '',
+  selectedBranch: '',
 };
 
 function generatePrompt(formData: WizardFormData) {
@@ -207,17 +178,6 @@ function generatePrompt(formData: WizardFormData) {
     empathetic: 'empathetic, warm, emotionally intelligent, and psychologically insightful',
     no_nonsense: 'direct, blunt when necessary, and unwilling to let the user hide behind polished language',
     clinical: 'clinical, measured, highly analytical, and careful with emotional interpretation',
-  };
-
-  const painPointLanguage: Record<string, string> = {
-    career_productivity:
-      'When identifying the hidden thread, give special weight to the patterns undermining career, focus, execution, consistency, and output.',
-    health_wellness:
-      'When identifying the hidden thread, give special weight to the patterns undermining energy, health habits, recovery, and nervous system regulation.',
-    personal_relationships:
-      'When identifying the hidden thread, give special weight to the patterns undermining intimacy, communication, trust, and emotional closeness.',
-    financial_freedom:
-      'When identifying the hidden thread, give special weight to the patterns undermining money behavior, financial avoidance, self-worth, and long-term stability.',
   };
 
   const rigorLanguage: Record<string, string> = {
@@ -246,7 +206,6 @@ Overall tone:
 Core objective:
 - Conduct a profound diagnostic Life Audit across Physical Health, Mental Health, Romantic Relationships, Friendships, Career Fulfillment, Finances, and Fun.
 - Help the user move from being inside the problem to observing the problem from the outside.
-- ${painPointLanguage[formData.painPoint]}
 
 Phase 1: The Extraction
 - Begin by telling the user: "Don't perform. Write what's actually true; the messier the better."
@@ -277,9 +236,9 @@ Start the audit now.`;
 }
 
 function generateDescription(formData: WizardFormData) {
-  return `Life audit guide with a ${formatLabel(formData.guideTone)} tone, ${formatLabel(
+  return `Life audit guide with a ${formatLabel(formData.guideTone)} tone and ${formatLabel(
     formData.auditRigor,
-  )} rigor, and a focus on ${formatLabel(formData.painPoint)}.`;
+  )} rigor.`;
 }
 
 export default function WizardCreator() {
@@ -296,21 +255,19 @@ export default function WizardCreator() {
   const [isGitModalOpen, setIsGitModalOpen] = useState(false);
   const [branchName, setBranchName] = useState('feature/life-audit-update');
   const [commitMessage, setCommitMessage] = useState('Update wizard flow');
-  const [githubConnection, setGithubConnection] = useState<GitHubConnection>(DEFAULT_GITHUB_CONNECTION);
+  const [gitConnection, setGitConnection] = useState<GitConnection>(DEFAULT_GIT_CONNECTION);
   const knowledgeInputRef = useRef<HTMLInputElement | null>(null);
 
   const instructionStep = useMemo<WizardStep>(() => config.steps[0] || EMPTY_WIZARD.steps[0], [config]);
   const isFinalStep = currentStepIndex === PREP_STEPS.length - 1;
   const canProceed =
     currentStepIndex === 0
-      ? Boolean(formData.gemName.trim() && formData.guideTone)
+      ? Boolean(formData.guideTone)
       : currentStepIndex === 1
-        ? Boolean(formData.painPoint)
+        ? Boolean(formData.auditRigor)
         : currentStepIndex === 2
-          ? Boolean(formData.auditRigor)
-          : currentStepIndex === 3
-            ? Boolean(formData.learningStyle)
-            : true;
+          ? Boolean(formData.learningStyle)
+          : true;
 
   const readJson = async (res: Response) => {
     const text = await res.text();
@@ -335,7 +292,7 @@ export default function WizardCreator() {
       setConfig(loadedWizard);
       setFormData((current) => ({
         ...current,
-        gemName: loadedWizard.name || current.gemName,
+        gemName: loadedWizard.name || current.gemName || DEFAULT_FORM_DATA.gemName,
       }));
       setNotice('');
       setError('');
@@ -354,6 +311,13 @@ export default function WizardCreator() {
         throw new Error(data.error || 'Unable to load git status');
       }
       setGitStatus(data);
+      setGitConnection((current) => ({
+        ...current,
+        selectedBranch: data.branch && data.branch !== 'not-initialized' && data.branch !== 'error' ? data.branch : current.selectedBranch,
+        baseBranch:
+          current.baseBranch ||
+          (data.branches.includes('main') ? 'main' : data.branches.includes('master') ? 'master' : current.baseBranch),
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load git status');
     }
@@ -367,21 +331,17 @@ export default function WizardCreator() {
   useEffect(() => {
     setBranchName(`feature/${slugify(config.name || formData.gemName || 'wizard')}`);
     setCommitMessage(`Update ${config.name || formData.gemName || 'wizard'} flow`);
-    setGithubConnection((current) => ({
-      ...current,
-      workingBranch: `feature/${slugify(config.name || formData.gemName || 'wizard')}`,
-    }));
   }, [config.name, formData.gemName]);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem('wizardengine-github-connection');
+    const stored = window.localStorage.getItem('wizardengine-git-connection');
     if (!stored) {
       return;
     }
 
     try {
-      const parsed = JSON.parse(stored) as Partial<GitHubConnection>;
-      setGithubConnection((current) => ({
+      const parsed = JSON.parse(stored) as Partial<GitConnection>;
+      setGitConnection((current) => ({
         ...current,
         ...parsed,
       }));
@@ -392,10 +352,10 @@ export default function WizardCreator() {
 
   useEffect(() => {
     window.localStorage.setItem(
-      'wizardengine-github-connection',
-      JSON.stringify(githubConnection),
+      'wizardengine-git-connection',
+      JSON.stringify(gitConnection),
     );
-  }, [githubConnection]);
+  }, [gitConnection]);
 
   const updateConfig = (updates: Partial<WizardConfig>) => {
     setConfig((current) => ({
@@ -495,8 +455,8 @@ export default function WizardCreator() {
     }
   };
 
-  const updateGitHubConnection = <K extends keyof GitHubConnection>(key: K, value: GitHubConnection[K]) => {
-    setGithubConnection((current) => ({ ...current, [key]: value }));
+  const updateGitConnection = <K extends keyof GitConnection>(key: K, value: GitConnection[K]) => {
+    setGitConnection((current) => ({ ...current, [key]: value }));
   };
 
   const runGitAction = async (
@@ -525,22 +485,26 @@ export default function WizardCreator() {
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Git action failed';
-      if (message.includes('GitHub-backed integration') || message.includes('shared Vercel deployment')) {
-        setNotice('Connect GitHub to publish, branch, sync, and merge changes from the shared app.');
-        setError('');
-      } else {
-        setError(message);
-        setNotice('');
-      }
+      setError(message);
+      setNotice('');
       return false;
     } finally {
       setIsGitLoading(false);
     }
   };
 
+  const gitAuthPayload = () => ({
+    username: gitConnection.username.trim(),
+    password: gitConnection.password,
+  });
+
+  const handleInitGit = async () => {
+    await runGitAction('/api/git-init', {}, 'Git repository is ready.');
+  };
+
   const handleCreateBranch = async () => {
-    if (!githubConnection.token.trim() || !githubConnection.repo.trim() || !githubConnection.workingBranch.trim()) {
-      setError('Add your GitHub token, repository, and working branch first.');
+    if (!branchName.trim()) {
+      setError('Add a branch name first.');
       return;
     }
     const saved = await saveWizard();
@@ -548,93 +512,74 @@ export default function WizardCreator() {
       return;
     }
     await runGitAction(
-      '/api/github-publish',
+      '/api/git-branch',
       {
-        token: githubConnection.token.trim(),
-        repo: githubConnection.repo.trim(),
-        baseBranch: githubConnection.baseBranch.trim() || 'main',
-        branch: githubConnection.workingBranch.trim(),
-        message: commitMessage.trim() || `Create ${githubConnection.workingBranch.trim()}`,
-        config,
+        name: branchName.trim(),
       },
-      `Published ${githubConnection.workingBranch.trim()} to GitHub.`,
+      `Created and switched to ${branchName.trim()}.`,
     );
+  };
+
+  const handleCheckoutBranch = async () => {
+    if (!gitConnection.selectedBranch.trim()) {
+      setError('Choose a branch to switch to.');
+      return;
+    }
+    await runGitAction(
+      '/api/git-checkout',
+      { name: gitConnection.selectedBranch.trim() },
+      `Switched to ${gitConnection.selectedBranch.trim()}.`,
+    );
+  };
+
+  const handleFetch = async () => {
+    await runGitAction('/api/git-fetch', gitAuthPayload(), 'Fetched latest branches and remote updates.');
   };
 
   const handlePull = async () => {
-    if (!githubConnection.token.trim() || !githubConnection.repo.trim() || !githubConnection.workingBranch.trim()) {
-      setError('Add your GitHub token, repository, and working branch first.');
-      return;
-    }
-    setIsGitLoading(true);
-    try {
-      const res = await fetch('/api/github-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: githubConnection.token.trim(),
-          repo: githubConnection.repo.trim(),
-          branch: githubConnection.workingBranch.trim(),
-          wizardName: config.name || formData.gemName,
-        }),
-      });
-      const data = await readJson(res);
-      if (!res.ok) {
-        throw new Error(data.error || 'Unable to sync latest changes');
-      }
-      setConfig(buildCleanWizard(data.wizard as WizardConfig));
-      setNotice(`Synced ${githubConnection.workingBranch.trim()} from GitHub.`);
-      setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to sync latest changes');
-      setNotice('');
-    } finally {
-      setIsGitLoading(false);
-    }
+    await runGitAction('/api/git-pull', gitAuthPayload(), 'Downloaded the latest changes for this branch.');
   };
 
   const handleMergeToMain = async () => {
-    if (!githubConnection.token.trim() || !githubConnection.repo.trim() || !githubConnection.workingBranch.trim()) {
-      setError('Add your GitHub token, repository, and working branch first.');
+    if (!gitStatus?.branch) {
+      setError('Git status is not loaded yet.');
       return;
     }
-    if ((githubConnection.baseBranch.trim() || 'main') === githubConnection.workingBranch.trim()) {
-      setError('Working branch must be different from the base branch.');
+    const targetBranch = gitConnection.baseBranch.trim() || 'main';
+    if (targetBranch === gitStatus.branch) {
+      setError('Choose a different merge target than the current branch.');
       return;
     }
     await runGitAction(
-      '/api/github-merge',
+      '/api/git-merge',
       {
-        token: githubConnection.token.trim(),
-        repo: githubConnection.repo.trim(),
-        baseBranch: githubConnection.baseBranch.trim() || 'main',
-        branch: githubConnection.workingBranch.trim(),
-        message: `Merge ${githubConnection.workingBranch.trim()} into ${githubConnection.baseBranch.trim() || 'main'}`,
+        from: gitStatus.branch,
+        to: targetBranch,
       },
-      `Merged ${githubConnection.workingBranch.trim()} into ${githubConnection.baseBranch.trim() || 'main'}.`,
+      `Merged ${gitStatus.branch} into ${targetBranch}.`,
     );
   };
 
-  const handlePublish = async () => {
+  const handleCommit = async () => {
     const saved = await saveWizard();
     if (!saved) {
       return;
     }
-    if (!githubConnection.token.trim() || !githubConnection.repo.trim() || !githubConnection.workingBranch.trim()) {
-      setError('Add your GitHub token, repository, and working branch first.');
-      return;
-    }
     await runGitAction(
-      '/api/github-publish',
+      '/api/git-commit',
       {
-        token: githubConnection.token.trim(),
-        repo: githubConnection.repo.trim(),
-        baseBranch: githubConnection.baseBranch.trim() || 'main',
-        branch: githubConnection.workingBranch.trim(),
         message: commitMessage.trim() || 'Update wizard',
-        config,
+        ...gitAuthPayload(),
       },
-      `Published changes to ${githubConnection.workingBranch.trim()} on GitHub.`,
+      `Committed changes on ${gitStatus?.branch || 'the current branch'}.`,
+    );
+  };
+
+  const handlePush = async () => {
+    await runGitAction(
+      '/api/git-push',
+      gitAuthPayload(),
+      `Uploaded ${gitStatus?.branch || 'the current branch'} to the remote repository.`,
     );
   };
 
@@ -797,12 +742,16 @@ export default function WizardCreator() {
             handleKnowledgeUpload,
             setBranchName,
             setCommitMessage,
+            handleInitGit,
             handleCreateBranch,
+            handleCheckoutBranch,
+            handleFetch,
             handlePull,
-            handlePublish,
+            handleCommit,
+            handlePush,
             handleMergeToMain,
-            githubConnection,
-            updateGitHubConnection,
+            gitConnection,
+            updateGitConnection,
             isGitModalOpen,
             setIsGitModalOpen,
             startOver,
@@ -822,19 +771,14 @@ function renderPrepStep(
     case 0:
       return (
         <div className="space-y-4">
-          <InputField label="Gem Name" value={formData.gemName} onChange={(value) => updateFormData('gemName', value)} />
           <ChoiceCardGroup value={formData.guideTone} options={TONE_OPTIONS} onChange={(value) => updateFormData('guideTone', value)} />
         </div>
       );
     case 1:
       return (
-        <ChoiceCardGroup value={formData.painPoint} options={PAIN_POINT_OPTIONS} onChange={(value) => updateFormData('painPoint', value)} />
-      );
-    case 2:
-      return (
         <ChoiceCardGroup value={formData.auditRigor} options={RIGOR_OPTIONS} onChange={(value) => updateFormData('auditRigor', value)} />
       );
-    case 3:
+    case 2:
       return (
         <ChoiceCardGroup
           value={formData.learningStyle}
@@ -842,16 +786,14 @@ function renderPrepStep(
           onChange={(value) => updateFormData('learningStyle', value)}
         />
       );
-    case 4:
+    case 3:
       return (
         <div className="space-y-4">
-          <ReviewRow label="Gem Name" value={formData.gemName} />
           <ReviewRow label="Guide Tone" value={formatLabel(formData.guideTone)} />
-          <ReviewRow label="Pain Point" value={formatLabel(formData.painPoint)} />
           <ReviewRow label="Audit Rigor" value={formatLabel(formData.auditRigor)} />
           <ReviewRow label="Learning Style" value={formatLabel(formData.learningStyle)} />
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-700">
-            Clicking <strong>Generate Prompt</strong> will keep the current final page layout unchanged and fill it with the generated prompt.
+            Click <strong>Generate Prompt</strong>.
           </div>
         </div>
       );
@@ -879,12 +821,16 @@ function renderFinalPage({
   handleKnowledgeUpload,
   setBranchName,
   setCommitMessage,
+  handleInitGit,
   handleCreateBranch,
+  handleCheckoutBranch,
+  handleFetch,
   handlePull,
-  handlePublish,
+  handleCommit,
+  handlePush,
   handleMergeToMain,
-  githubConnection,
-  updateGitHubConnection,
+  gitConnection,
+  updateGitConnection,
   isGitModalOpen,
   setIsGitModalOpen,
   startOver,
@@ -908,12 +854,16 @@ function renderFinalPage({
   handleKnowledgeUpload: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   setBranchName: React.Dispatch<React.SetStateAction<string>>;
   setCommitMessage: React.Dispatch<React.SetStateAction<string>>;
+  handleInitGit: () => Promise<void>;
   handleCreateBranch: () => Promise<void>;
+  handleCheckoutBranch: () => Promise<void>;
+  handleFetch: () => Promise<void>;
   handlePull: () => Promise<void>;
-  handlePublish: () => Promise<void>;
+  handleCommit: () => Promise<void>;
+  handlePush: () => Promise<void>;
   handleMergeToMain: () => Promise<void>;
-  githubConnection: GitHubConnection;
-  updateGitHubConnection: <K extends keyof GitHubConnection>(key: K, value: GitHubConnection[K]) => void;
+  gitConnection: GitConnection;
+  updateGitConnection: <K extends keyof GitConnection>(key: K, value: GitConnection[K]) => void;
   isGitModalOpen: boolean;
   setIsGitModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   startOver: () => void;
@@ -996,9 +946,9 @@ function renderFinalPage({
 
         <div>
           <FieldHeader title="Default tool" />
-          <div className="flex items-center justify-between rounded-xl bg-white px-4 py-4 text-sm text-gray-700">
-            <span>{config.defaultTool || 'No default tool'}</span>
-            <span className="text-gray-400">▼</span>
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-100 px-4 py-4 text-sm text-slate-400">
+            <span>{config.defaultTool && config.defaultTool !== 'No default tool' ? config.defaultTool : 'Select from the Gemini Gem'}</span>
+            <span className="text-slate-300">▼</span>
           </div>
         </div>
 
@@ -1008,16 +958,16 @@ function renderFinalPage({
           <button
             type="button"
             onClick={() => knowledgeInputRef.current?.click()}
-            className="flex w-full items-center justify-between rounded-xl bg-white px-4 py-4 text-left text-sm text-gray-500"
+            className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-100 px-4 py-4 text-left text-sm text-slate-400"
           >
             <span>
               {isUploadingKnowledge
                 ? 'Uploading files...'
                 : config.knowledgeFiles.length
                   ? config.knowledgeFiles.join(', ')
-                  : 'Add files for your Gem to reference'}
+                  : 'Choose knowledge from the Gemini Gem'}
             </span>
-            <span className="text-2xl text-gray-500">{isUploadingKnowledge ? '…' : '+'}</span>
+            <span className="text-2xl text-slate-300">{isUploadingKnowledge ? '…' : '+'}</span>
           </button>
         </div>
 
@@ -1030,6 +980,21 @@ function renderFinalPage({
           />
           <span>Disable Knowledge Citations</span>
         </label>
+      </div>
+
+      <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-6">
+        <button onClick={goBack} className="rounded-full bg-white px-4 py-2 text-sm font-medium text-gray-600">
+          Back
+        </button>
+        <button onClick={startOver} className="rounded-full bg-white px-4 py-2 text-sm font-medium text-gray-600">
+          Start over
+        </button>
+        <button
+          onClick={saveWizard}
+          className="rounded-full bg-gray-200 px-5 py-2 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-300"
+        >
+          {isSaving ? 'Saving...' : 'Save'}
+        </button>
       </div>
 
       {isGitModalOpen && (
@@ -1058,13 +1023,17 @@ function renderFinalPage({
                 commitMessage={commitMessage}
                 onBranchNameChange={setBranchName}
                 onCommitMessageChange={setCommitMessage}
+                onInitGit={handleInitGit}
                 onCreateBranch={handleCreateBranch}
+                onCheckoutBranch={handleCheckoutBranch}
+                onFetch={handleFetch}
                 onPull={handlePull}
-                onPublish={handlePublish}
+                onCommit={handleCommit}
+                onPush={handlePush}
                 onMergeToMain={handleMergeToMain}
                 onSaveDraft={saveWizard}
-                githubConnection={githubConnection}
-                onGitHubConnectionChange={updateGitHubConnection}
+                gitConnection={gitConnection}
+                onGitConnectionChange={updateGitConnection}
               />
             </div>
           </div>
@@ -1101,11 +1070,22 @@ function FieldHeader({
   );
 }
 
-function InputField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function InputField({
+  label,
+  value,
+  onChange,
+  type = 'text',
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: React.HTMLInputTypeAttribute;
+}) {
   return (
     <div>
       <label className="mb-2 block text-sm font-medium text-slate-700">{label}</label>
       <input
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-700 outline-none transition-colors focus:border-[#377dff]"
@@ -1174,13 +1154,17 @@ function GitPanel({
   commitMessage,
   onBranchNameChange,
   onCommitMessageChange,
+  onInitGit,
   onCreateBranch,
+  onCheckoutBranch,
+  onFetch,
   onPull,
-  onPublish,
+  onCommit,
+  onPush,
   onMergeToMain,
   onSaveDraft,
-  githubConnection,
-  onGitHubConnectionChange,
+  gitConnection,
+  onGitConnectionChange,
 }: {
   gitStatus: GitStatus | null;
   isLoading: boolean;
@@ -1188,30 +1172,41 @@ function GitPanel({
   commitMessage: string;
   onBranchNameChange: React.Dispatch<React.SetStateAction<string>>;
   onCommitMessageChange: React.Dispatch<React.SetStateAction<string>>;
+  onInitGit: () => Promise<void>;
   onCreateBranch: () => Promise<void>;
+  onCheckoutBranch: () => Promise<void>;
+  onFetch: () => Promise<void>;
   onPull: () => Promise<void>;
-  onPublish: () => Promise<void>;
+  onCommit: () => Promise<void>;
+  onPush: () => Promise<void>;
   onMergeToMain: () => Promise<void>;
   onSaveDraft: () => Promise<boolean>;
-  githubConnection: GitHubConnection;
-  onGitHubConnectionChange: <K extends keyof GitHubConnection>(key: K, value: GitHubConnection[K]) => void;
+  gitConnection: GitConnection;
+  onGitConnectionChange: <K extends keyof GitConnection>(key: K, value: GitConnection[K]) => void;
 }) {
-  const usingGitHubPublish = !gitStatus?.available || gitStatus.branch === 'github-integration-required';
+  const isRepoReady = Boolean(gitStatus?.available);
+  const hasBranches = Boolean(gitStatus?.branches.length);
+  const currentBranch = gitStatus?.branch || 'not-initialized';
+  const branchNeedsPushFirst = Boolean(gitStatus?.hasRemote && !gitStatus?.upstreamConfigured);
+  const mergeTargetOptions = gitStatus?.branches?.length
+    ? gitStatus.branches
+    : gitConnection.baseBranch
+      ? [gitConnection.baseBranch]
+      : [];
 
   return (
-    <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
+    <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-5 shadow-[0_18px_40px_rgba(15,23,42,0.05)]">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">{usingGitHubPublish ? 'GitHub Publish' : 'Version Control'}</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            {usingGitHubPublish
-              ? 'Connect a repository and publish this wizard through GitHub so shared Vercel users can sync and merge changes.'
-              : 'Save draft changes, create a branch, publish to remote, sync latest, and merge back to main.'}
+          <h3 className="text-base font-semibold tracking-[-0.02em] text-slate-900">Git Workspace</h3>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+            Keep this beginner-friendly: see where you are, save your draft, create a branch, commit, pull, push, and
+            merge back into your target branch from one place.
           </p>
         </div>
         {gitStatus && (
           <span
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${
               gitStatus.status === 'dirty'
                 ? 'bg-amber-50 text-amber-700'
                 : gitStatus.status === 'clean'
@@ -1224,138 +1219,201 @@ function GitPanel({
         )}
       </div>
 
-      {usingGitHubPublish ? (
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-sm font-medium text-slate-800">Connect GitHub to enable publishing</p>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Enter a GitHub personal access token and repository. The app will publish this wizard into a branch and can
-            sync or merge it later.
+      {!isRepoReady ? (
+        <div className="mt-5 rounded-[24px] border border-slate-200 bg-white p-5">
+          <p className="text-sm font-semibold text-slate-800">This folder is not a Git repository yet.</p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            Start here once, then the rest of the branch, commit, pull, push, and merge controls will light up.
           </p>
-
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <InputField
-              label="GitHub Token"
-              value={githubConnection.token}
-              onChange={(value) => onGitHubConnectionChange('token', value)}
-            />
-            <InputField
-              label="Repository"
-              value={githubConnection.repo}
-              onChange={(value) => onGitHubConnectionChange('repo', value)}
-            />
-            <InputField
-              label="Base Branch"
-              value={githubConnection.baseBranch}
-              onChange={(value) => onGitHubConnectionChange('baseBranch', value)}
-            />
-            <InputField
-              label="Working Branch"
-              value={githubConnection.workingBranch}
-              onChange={(value) => onGitHubConnectionChange('workingBranch', value)}
-            />
-          </div>
-
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <InputField label="Commit Message" value={commitMessage} onChange={onCommitMessageChange} />
-            <InputField label="Draft Branch Name" value={branchName} onChange={onBranchNameChange} />
-          </div>
-
           <div className="mt-4 flex flex-wrap gap-3">
             <button
-              onClick={() => void onSaveDraft()}
-              disabled={isLoading}
-              className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-            >
-              Save Draft
-            </button>
-            <button
-              onClick={onCreateBranch}
-              disabled={isLoading}
-              className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
-            >
-              {isLoading ? 'Working...' : 'Create Branch'}
-            </button>
-            <button
-              onClick={onPull}
-              disabled={isLoading}
-              className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
-            >
-              {isLoading ? 'Working...' : 'Sync Latest'}
-            </button>
-            <button
-              onClick={onPublish}
+              onClick={onInitGit}
               disabled={isLoading}
               className="rounded-full bg-[#377dff] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
             >
-              {isLoading ? 'Working...' : 'Publish Changes'}
+              {isLoading ? 'Working...' : 'Initialize Git'}
             </button>
             <button
-              onClick={onMergeToMain}
+              onClick={() => void onSaveDraft()}
               disabled={isLoading}
               className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
             >
-              {isLoading ? 'Working...' : 'Merge to Main'}
+              Save Draft
             </button>
           </div>
         </div>
       ) : (
         <>
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
             <StatusTile label="Current Branch" value={gitStatus.branch} />
+            <StatusTile label="Tracking" value={gitStatus.upstreamConfigured ? gitStatus.trackingBranch || 'Connected' : 'Not linked yet'} />
             <StatusTile label="Latest Commit" value={gitStatus.latestCommit} />
             <StatusTile label="Ahead / Behind" value={`${gitStatus.aheadCount || 0} / ${gitStatus.behindCount || 0}`} />
-            <StatusTile label="Remote" value={gitStatus.hasRemote ? 'Connected' : 'Not set'} />
+            <StatusTile label="Remote" value={gitStatus.hasRemote ? 'Connected' : 'Not Connected'} />
           </div>
 
-          <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Last Commit</p>
-            <p className="mt-1 text-sm text-slate-700">{gitStatus.commitMessage}</p>
-            {gitStatus.changedFiles.length > 0 && (
-              <p className="mt-2 text-xs text-slate-500">{gitStatus.changedFiles.length} changed file entries waiting in the workspace.</p>
+          <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="rounded-[24px] border border-slate-200 bg-white p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Repository Overview</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Check your current branch, the last commit, and anything waiting to be committed.
+                  </p>
+                </div>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                  {gitStatus.repoRoot ? 'Server repo ready' : 'Repo ready'}
+                </span>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Last Commit</p>
+                <p className="mt-1 text-sm text-slate-700">{gitStatus.commitMessage}</p>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Changed Files</p>
+                  <span className="text-xs text-slate-500">{gitStatus.changedFiles.length} pending</span>
+                </div>
+                {gitStatus.changedFiles.length ? (
+                  <div className="mt-3 max-h-44 space-y-2 overflow-y-auto pr-1">
+                    {gitStatus.changedFiles.map((file) => (
+                      <div key={file} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                        {file}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">No local file changes are waiting right now.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-slate-200 bg-[#f8fbff] p-5">
+              <p className="text-sm font-semibold text-slate-800">Credentials & Merge Target</p>
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                Keep these for HTTPS remotes. For GitHub, the password field should hold a personal access token.
+              </p>
+
+              <div className="mt-4 grid gap-4">
+                <InputField
+                  label="Git Username"
+                  value={gitConnection.username}
+                  onChange={(value) => onGitConnectionChange('username', value)}
+                />
+                <InputField
+                  label="Git Password / Token"
+                  type="password"
+                  value={gitConnection.password}
+                  onChange={(value) => onGitConnectionChange('password', value)}
+                />
+                <SelectField
+                  label="Merge Into"
+                  value={gitConnection.baseBranch}
+                  onChange={(value) => onGitConnectionChange('baseBranch', value)}
+                  options={mergeTargetOptions}
+                  placeholder="Choose a target branch"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-[24px] border border-slate-200 bg-white p-5">
+            <p className="text-sm font-semibold text-slate-800">Work On Branches</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Create a new branch for your work, or switch to an existing one before you start editing.
+            </p>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <InputField label="New Branch Name" value={branchName} onChange={onBranchNameChange} />
+              <SelectField
+                label="Switch To Branch"
+                value={gitConnection.selectedBranch}
+                onChange={(value) => onGitConnectionChange('selectedBranch', value)}
+                options={gitStatus.branches}
+                placeholder={hasBranches ? 'Choose a branch' : 'No branches found'}
+              />
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                onClick={onCreateBranch}
+                disabled={isLoading}
+                className="rounded-full bg-[#377dff] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {isLoading ? 'Working...' : 'Create Branch'}
+              </button>
+              <button
+                onClick={onCheckoutBranch}
+                disabled={isLoading || !hasBranches || gitConnection.selectedBranch === currentBranch}
+                className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
+              >
+                {isLoading ? 'Working...' : 'Switch Branch'}
+              </button>
+              <button
+                onClick={onFetch}
+                disabled={isLoading || !gitStatus.hasRemote}
+                className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
+              >
+                {isLoading ? 'Working...' : 'Fetch Latest'}
+              </button>
+              <button
+                onClick={onPull}
+                disabled={isLoading || !gitStatus.hasRemote || branchNeedsPushFirst}
+                className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
+              >
+                {isLoading ? 'Working...' : 'Pull Changes'}
+              </button>
+            </div>
+            {branchNeedsPushFirst && (
+              <p className="mt-3 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                This branch is local only right now. Click <strong>Push Branch</strong> once to link it to the remote, or switch to
+                `main` before pulling.
+              </p>
             )}
           </div>
 
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <InputField label="Branch Name" value={branchName} onChange={onBranchNameChange} />
-            <InputField label="Commit Message" value={commitMessage} onChange={onCommitMessageChange} />
-          </div>
+          <div className="mt-5 rounded-[24px] border border-slate-200 bg-white p-5">
+            <p className="text-sm font-semibold text-slate-800">Save And Publish Your Work</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Save the wizard, write a commit message, commit your changes, then push the current branch to the remote.
+            </p>
 
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              onClick={() => void onSaveDraft()}
-              disabled={isLoading}
-              className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-            >
-              Save Draft
-            </button>
-            <button
-              onClick={onCreateBranch}
-              disabled={isLoading}
-              className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
-            >
-              {isLoading ? 'Working...' : 'Create Branch'}
-            </button>
-            <button
-              onClick={onPull}
-              disabled={isLoading || !gitStatus.hasRemote}
-              className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
-            >
-              {isLoading ? 'Working...' : 'Sync Latest'}
-            </button>
-            <button
-              onClick={onPublish}
-              disabled={isLoading || !gitStatus.hasRemote}
-              className="rounded-full bg-[#377dff] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              {isLoading ? 'Working...' : 'Publish Changes'}
-            </button>
-            <button
-              onClick={onMergeToMain}
-              disabled={isLoading || gitStatus.branch === 'main'}
-              className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
-            >
-              {isLoading ? 'Working...' : 'Merge to Main'}
-            </button>
+            <div className="mt-4">
+              <InputField label="Commit Message" value={commitMessage} onChange={onCommitMessageChange} />
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                onClick={() => void onSaveDraft()}
+                disabled={isLoading}
+                className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+              >
+                Save Draft
+              </button>
+              <button
+                onClick={onCommit}
+                disabled={isLoading}
+                className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
+              >
+                {isLoading ? 'Working...' : 'Commit Changes'}
+              </button>
+              <button
+                onClick={onPush}
+                disabled={isLoading || !gitStatus.hasRemote}
+                className="rounded-full bg-[#377dff] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {isLoading ? 'Working...' : 'Push Branch'}
+              </button>
+              <button
+                onClick={onMergeToMain}
+                disabled={isLoading || !gitConnection.baseBranch || gitConnection.baseBranch === currentBranch}
+                className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
+              >
+                {isLoading ? 'Working...' : `Merge Into ${gitConnection.baseBranch || 'Target'}`}
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -1369,5 +1427,40 @@ function StatusTile({ label, value }: { label: string; value: string }) {
       <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">{label}</p>
       <p className="mt-1 text-sm font-medium text-slate-700">{value}</p>
     </div>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-[#377dff]"
+        >
+          <option value="">{placeholder || 'Select an option'}</option>
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400">▼</span>
+      </div>
+    </label>
   );
 }

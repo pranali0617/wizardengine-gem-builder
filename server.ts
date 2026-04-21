@@ -1,11 +1,27 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { execFileSync } from "child_process";
 import dotenv from "dotenv";
 import { refinePrompt as sharedRefinePrompt } from "./lib/wizard-backend";
+import {
+  buildGitHubAuthorizeUrl,
+  buildStateCookie,
+  clearStateCookie,
+  createGitHubState,
+  exchangeGitHubCodeForToken,
+  fetchGitHubViewer,
+  inferAppOrigin,
+  readCookie,
+} from "./lib/github-auth";
+import {
+  publishWizardToGitHub,
+  syncWizardFromGitHub,
+  mergeBranchOnGitHub,
+} from "./lib/github-publish";
 
 dotenv.config();
 
@@ -198,12 +214,87 @@ export default function ExportedWizard() {
 `;
 }
 
-function runGit(args: string[]) {
+type GitExecutionOptions = {
+  env?: NodeJS.ProcessEnv;
+};
+
+type GitAuthInput = {
+  username?: string;
+  password?: string;
+};
+
+function runGit(args: string[], options?: GitExecutionOptions) {
   return execFileSync("git", args, {
     cwd: PROJECT_ROOT,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      ...options?.env,
+    },
   }).trim();
+}
+
+function readGitAuth(input: any): GitAuthInput {
+  return {
+    username: String(input?.username || "").trim(),
+    password: String(input?.password || "").trim(),
+  };
+}
+
+function withGitAuth<T>(auth: GitAuthInput, callback: (env?: NodeJS.ProcessEnv) => T) {
+  if (!auth.username && !auth.password) {
+    return callback();
+  }
+
+  const askPassPath = path.join(
+    os.tmpdir(),
+    `wizardengine-git-askpass-${process.pid}-${Date.now()}.sh`,
+  );
+
+  fs.writeFileSync(
+    askPassPath,
+    `#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\\n' "$GIT_USERNAME" ;;
+  *Password*) printf '%s\\n' "$GIT_PASSWORD" ;;
+  *) printf '%s\\n' "$GIT_PASSWORD" ;;
+esac
+`,
+    { mode: 0o700 },
+  );
+
+  try {
+    return callback({
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_ASKPASS: askPassPath,
+      GIT_USERNAME: auth.username || "",
+      GIT_PASSWORD: auth.password || "",
+    });
+  } finally {
+    fs.unlinkSync(askPassPath);
+  }
+}
+
+function ensureGitIdentity(username?: string) {
+  const trimmed = String(username || "").trim();
+  if (!trimmed) {
+    return;
+  }
+
+  runGit(["config", "user.name", trimmed]);
+
+  try {
+    const existingEmail = runGit(["config", "user.email"]);
+    if (existingEmail) {
+      return;
+    }
+  } catch {
+    // Fall through and set a repo-local default email.
+  }
+
+  const fallbackEmail = `${slugify(trimmed)}@wizardengine.local`;
+  runGit(["config", "user.email", fallbackEmail]);
 }
 
 function isGitRepo() {
@@ -224,6 +315,8 @@ function getGitStatus() {
       status: "unavailable",
       changedFiles: [],
       branches: [],
+      trackingBranch: "",
+      upstreamConfigured: false,
       aheadCount: 0,
       behindCount: 0,
       hasRemote: false,
@@ -263,14 +356,14 @@ function getGitStatus() {
         return false;
       }
     })();
-    const upstreamExists = (() => {
+    const trackingBranch = (() => {
       try {
-        runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
-        return true;
+        return runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
       } catch {
-        return false;
+        return "";
       }
     })();
+    const upstreamExists = Boolean(trackingBranch);
     const [behindCount, aheadCount] =
       hasRemote && upstreamExists
         ? runGit(["rev-list", "--left-right", "--count", "HEAD...@{u}"])
@@ -282,6 +375,8 @@ function getGitStatus() {
       available: true,
       repoRoot,
       branch,
+      trackingBranch,
+      upstreamConfigured: upstreamExists,
       latestCommit,
       commitMessage,
       status: changedFiles.length ? "dirty" : "clean",
@@ -309,14 +404,7 @@ function getGitStatus() {
 }
 
 function stageWorkspaceFiles() {
-  const candidates = ["data", "package.json", "package-lock.json"];
-  const existing = candidates.filter((candidate) => fs.existsSync(path.join(PROJECT_ROOT, candidate)));
-
-  if (!existing.length) {
-    throw new Error("No tracked wizard files found to stage.");
-  }
-
-  runGit(["add", ...existing]);
+  runGit(["add", "-A"]);
 }
 
 function getDependencies() {
@@ -576,6 +664,149 @@ async function startServer() {
     }
   });
 
+  app.get("/api/github-oauth-start", (req, res) => {
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    if (!clientId) {
+      res.status(500).send("Missing GITHUB_CLIENT_ID");
+      return;
+    }
+
+    const origin = inferAppOrigin(req.headers as Record<string, string | string[] | undefined>);
+    const redirectUri = `${origin}/api/github-oauth-callback`;
+    const state = createGitHubState();
+    const secure = origin.startsWith("https://");
+
+    res.setHeader("Set-Cookie", buildStateCookie(state, secure));
+    res.redirect(buildGitHubAuthorizeUrl(clientId, redirectUri, state));
+  });
+
+  app.get("/api/github-oauth-callback", async (req, res) => {
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      res.status(500).send("Missing GitHub OAuth environment variables.");
+      return;
+    }
+
+    const origin = inferAppOrigin(req.headers as Record<string, string | string[] | undefined>);
+    const secure = origin.startsWith("https://");
+    const redirectUri = `${origin}/api/github-oauth-callback`;
+    const code = String(req.query?.code || "");
+    const state = String(req.query?.state || "");
+    const storedState = readCookie(req.headers.cookie, "github_oauth_state");
+
+    res.setHeader("Set-Cookie", clearStateCookie(secure));
+
+    if (!code || !state || !storedState || state !== storedState) {
+      res.status(400).send("GitHub OAuth state validation failed.");
+      return;
+    }
+
+    try {
+      const token = await exchangeGitHubCodeForToken({
+        clientId,
+        clientSecret,
+        code,
+        redirectUri,
+      });
+      const viewer = await fetchGitHubViewer(token);
+
+      res.send(`<!doctype html>
+<html><body><script>
+window.opener && window.opener.postMessage(
+  { type: 'github-oauth-success', payload: ${JSON.stringify({ token, login: viewer.login, avatarUrl: viewer.avatar_url })} },
+  window.location.origin
+);
+window.close();
+</script></body></html>`);
+    } catch (error) {
+      res.status(500).send(
+        `<!doctype html><html><body><script>
+window.opener && window.opener.postMessage(
+  { type: 'github-oauth-error', error: ${JSON.stringify(error instanceof Error ? error.message : "GitHub OAuth failed.")} },
+  window.location.origin
+);
+window.close();
+</script></body></html>`,
+      );
+    }
+  });
+
+  app.post("/api/github-publish", async (req, res) => {
+    try {
+      const token = String(req.body?.token || "").trim();
+      const repo = String(req.body?.repo || "").trim();
+      const baseBranch = String(req.body?.baseBranch || "main").trim();
+      const branch = String(req.body?.branch || "").trim();
+      const message = String(req.body?.message || "Update wizard").trim();
+      const config = normalizeWizard(req.body?.config || {});
+
+      if (!token || !repo || !branch) {
+        res.status(400).json({ error: "token, repo, and branch are required" });
+        return;
+      }
+
+      const result = await publishWizardToGitHub({
+        token,
+        repo,
+        baseBranch,
+        branch,
+        message,
+        config,
+      });
+
+      res.json({ published: true, ...result });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to publish to GitHub",
+      });
+    }
+  });
+
+  app.post("/api/github-sync", async (req, res) => {
+    try {
+      const token = String(req.body?.token || "").trim();
+      const repo = String(req.body?.repo || "").trim();
+      const branch = String(req.body?.branch || "").trim();
+      const wizardName = String(req.body?.wizardName || "").trim();
+
+      if (!token || !repo || !branch || !wizardName) {
+        res.status(400).json({ error: "token, repo, branch, and wizardName are required" });
+        return;
+      }
+
+      const wizard = await syncWizardFromGitHub(token, repo, branch, wizardName);
+      res.json({ wizard });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to sync from GitHub",
+      });
+    }
+  });
+
+  app.post("/api/github-merge", async (req, res) => {
+    try {
+      const token = String(req.body?.token || "").trim();
+      const repo = String(req.body?.repo || "").trim();
+      const baseBranch = String(req.body?.baseBranch || "main").trim();
+      const branch = String(req.body?.branch || "").trim();
+      const message = String(req.body?.message || "Merge wizard updates").trim();
+
+      if (!token || !repo || !branch) {
+        res.status(400).json({ error: "token, repo, and branch are required" });
+        return;
+      }
+
+      const result = await mergeBranchOnGitHub(token, repo, baseBranch, branch, message);
+      res.json({ merged: true, result });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to merge on GitHub",
+      });
+    }
+  });
+
   app.get("/api/git/status", (_req, res) => {
     res.json(getGitStatus());
   });
@@ -680,7 +911,16 @@ async function startServer() {
 
   app.post("/api/git/pull", (_req, res) => {
     try {
-      runGit(["pull", "--ff-only"]);
+      const status = getGitStatus();
+      if (status.hasRemote && !status.upstreamConfigured) {
+        res.status(400).json({
+          error:
+            `This branch is not linked to a remote branch yet. Push ${status.branch} first, or switch to a tracked branch like main before pulling.`,
+        });
+        return;
+      }
+      const auth = readGitAuth(_req.body);
+      withGitAuth(auth, (env) => runGit(["pull", "--ff-only"], { env }));
       res.json(getGitStatus());
     } catch (error) {
       res.status(500).json({
@@ -691,7 +931,16 @@ async function startServer() {
 
   app.post("/api/git-pull", (_req, res) => {
     try {
-      runGit(["pull", "--ff-only"]);
+      const status = getGitStatus();
+      if (status.hasRemote && !status.upstreamConfigured) {
+        res.status(400).json({
+          error:
+            `This branch is not linked to a remote branch yet. Push ${status.branch} first, or switch to a tracked branch like main before pulling.`,
+        });
+        return;
+      }
+      const auth = readGitAuth(_req.body);
+      withGitAuth(auth, (env) => runGit(["pull", "--ff-only"], { env }));
       res.json(getGitStatus());
     } catch (error) {
       res.status(500).json({
@@ -700,9 +949,35 @@ async function startServer() {
     }
   });
 
+  app.post("/api/git/fetch", (req, res) => {
+    try {
+      const auth = readGitAuth(req.body);
+      withGitAuth(auth, (env) => runGit(["fetch", "--all", "--prune"], { env }));
+      res.json(getGitStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to fetch from remote",
+      });
+    }
+  });
+
+  app.post("/api/git-fetch", (req, res) => {
+    try {
+      const auth = readGitAuth(req.body);
+      withGitAuth(auth, (env) => runGit(["fetch", "--all", "--prune"], { env }));
+      res.json(getGitStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unable to fetch from remote",
+      });
+    }
+  });
+
   app.post("/api/git/commit", (req, res) => {
     try {
       const message = String(req.body?.message || "").trim() || "Update wizard";
+      const auth = readGitAuth(req.body);
+      ensureGitIdentity(auth.username);
       stageWorkspaceFiles();
       const changedAfterStage = runGit(["status", "--porcelain"])
         .split("\n")
@@ -733,6 +1008,8 @@ async function startServer() {
   app.post("/api/git-commit", (req, res) => {
     try {
       const message = String(req.body?.message || "").trim() || "Update wizard";
+      const auth = readGitAuth(req.body);
+      ensureGitIdentity(auth.username);
       stageWorkspaceFiles();
       const changedAfterStage = runGit(["status", "--porcelain"])
         .split("\n")
@@ -762,6 +1039,7 @@ async function startServer() {
 
   app.post("/api/git/push", (_req, res) => {
     try {
+      const auth = readGitAuth(_req.body);
       const branch = runGit(["branch", "--show-current"]) || "main";
       const hasRemote = (() => {
         try {
@@ -786,9 +1064,9 @@ async function startServer() {
       })();
 
       if (upstreamExists) {
-        runGit(["push"]);
+        withGitAuth(auth, (env) => runGit(["push"], { env }));
       } else {
-        runGit(["push", "-u", "origin", branch]);
+        withGitAuth(auth, (env) => runGit(["push", "-u", "origin", branch], { env }));
       }
 
       res.json(getGitStatus());
@@ -801,6 +1079,7 @@ async function startServer() {
 
   app.post("/api/git-push", (_req, res) => {
     try {
+      const auth = readGitAuth(_req.body);
       const branch = runGit(["branch", "--show-current"]) || "main";
       const hasRemote = (() => {
         try {
@@ -825,9 +1104,9 @@ async function startServer() {
       })();
 
       if (upstreamExists) {
-        runGit(["push"]);
+        withGitAuth(auth, (env) => runGit(["push"], { env }));
       } else {
-        runGit(["push", "-u", "origin", branch]);
+        withGitAuth(auth, (env) => runGit(["push", "-u", "origin", branch], { env }));
       }
 
       res.json(getGitStatus());
@@ -841,11 +1120,15 @@ async function startServer() {
   app.post("/api/git/merge", (req, res) => {
     try {
       const from = String(req.body?.from || "").trim();
+      const to = String(req.body?.to || "").trim();
       if (!from) {
         res.status(400).json({ error: "Source branch is required" });
         return;
       }
 
+      if (to) {
+        runGit(["checkout", to]);
+      }
       runGit(["merge", "--no-edit", from]);
       res.json(getGitStatus());
     } catch (error) {
@@ -858,11 +1141,15 @@ async function startServer() {
   app.post("/api/git-merge", (req, res) => {
     try {
       const from = String(req.body?.from || "").trim();
+      const to = String(req.body?.to || "").trim();
       if (!from) {
         res.status(400).json({ error: "Source branch is required" });
         return;
       }
 
+      if (to) {
+        runGit(["checkout", to]);
+      }
       runGit(["merge", "--no-edit", from]);
       res.json(getGitStatus());
     } catch (error) {

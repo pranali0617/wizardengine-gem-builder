@@ -53,6 +53,8 @@ export interface GitStatus {
   available: boolean;
   repoRoot?: string;
   branch: string;
+  trackingBranch?: string;
+  upstreamConfigured?: boolean;
   latestCommit: string;
   commitMessage: string;
   status: 'clean' | 'dirty' | 'unavailable';
